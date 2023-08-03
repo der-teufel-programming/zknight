@@ -428,15 +428,17 @@ pub const Value = union(enum) {
 
     pub fn debugPrint(self: Value) void {
         switch (self) {
-            .string => |string| std.debug.print("`{s}`", .{string}),
+            .string => |string| std.debug.print("(Value.string)`{s}`", .{string}),
             .list => |list| {
+                std.debug.print("(Value.list)[", .{});
                 for (list) |value| {
                     value.debugPrint();
                     std.debug.print(", ", .{});
                 }
+                std.debug.print("]", .{});
             },
-            .null => std.debug.print("null", .{}),
-            inline else => |payload| std.debug.print("{}", .{payload}),
+            .null => std.debug.print("(Value.null)", .{}),
+            inline else => |payload| std.debug.print("(Value.{s}){}", .{ @tagName(self), payload }),
         }
     }
 
@@ -531,17 +533,23 @@ pub const Value = union(enum) {
             .list => |value| return value,
             .null => return &.{},
             .number => |value| {
+                if (value == 0) {
+                    var digits = try alloc.alloc(Value, 1);
+                    digits[0] = .{ .number = 0 };
+                    return digits;
+                }
                 const digit_count = std.fmt.count("{}", .{std.math.absCast(value)});
                 const sgn: isize = if (value < 0) -1 else 1;
                 var digits = try alloc.alloc(Value, digit_count);
                 var number = std.math.absCast(value);
+
                 var idx: usize = 0;
-                while (number > 0) {
+                while (number > 0) : (idx += 1) {
                     digits[idx] = .{ .number = sgn * @as(isize, @intCast(number % 10)) };
                     number /= 10;
-                    idx += 1;
                 }
                 std.mem.reverse(Value, digits);
+
                 return digits;
             },
             .bool => |value| return if (value) &.{self} else &.{},
