@@ -483,6 +483,8 @@ pub const Value = union(enum) {
             .null => return 0,
             .bool => |value| return @intFromBool(value),
             .string => |string| {
+                if (string.len == 0) return 0;
+
                 var start_idx: usize = 0;
                 while (start_idx < string.len and std.ascii.isWhitespace(string[start_idx])) {
                     start_idx += 1;
