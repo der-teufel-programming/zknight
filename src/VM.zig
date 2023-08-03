@@ -194,10 +194,26 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 switch (arg1) {
                     .number => |number1| {
                         const number2 = arg2.toNumber();
-                        if (number1 == 0 and number2 == 1) {
-                            result = .{ .number = 1 };
+                        result = .{ .number = std.math.powi(isize, number1, number2) catch 0 };
+                    },
+                    .list => |list1| {
+                        if (list1.len == 0) {
+                            result = .{ .string = try self.stack.allocator.dupe(u8, "") };
                         } else {
-                            result = .{ .number = std.math.powi(isize, number1, number2) catch 0 };
+                            const string2 = try arg2.toString(self.stack.allocator);
+                            defer self.stack.allocator.free(string2);
+                            var list_strings = try self.stack.allocator.alloc([]const u8, list1.len);
+                            for (list1, 0..) |elem, idx| {
+                                list_strings[idx] = try elem.toString(self.stack.allocator);
+                            }
+                            defer self.stack.allocator.free(list_strings);
+                            defer {
+                                for (list_strings) |str| {
+                                    self.stack.allocator.free(str);
+                                }
+                            }
+                            var res = try std.mem.join(self.stack.allocator, string2, list_strings);
+                            result = .{ .string = res };
                         }
                     },
                     else => {},
