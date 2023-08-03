@@ -488,12 +488,14 @@ pub const Value = union(enum) {
                     start_idx += 1;
                 }
                 var end_idx: usize = start_idx;
+                if (string[start_idx] == '-' or string[start_idx] == '+') end_idx += 1;
                 while (end_idx < string.len and std.ascii.isDigit(string[end_idx])) {
                     end_idx += 1;
                 }
-                if (start_idx > 0 and string[start_idx - 1] == '-') {
+                if (start_idx > 0 and (string[start_idx - 1] == '-' or string[start_idx - 1] == '+')) {
                     start_idx -= 1;
                 }
+                std.debug.print("[Value.toNumber]`{s}`\n", .{string[start_idx..end_idx]});
                 return std.fmt.parseInt(isize, string[start_idx..end_idx], 10) catch 0;
             },
             .list => |list| return @intCast(list.len),
