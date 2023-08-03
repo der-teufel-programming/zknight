@@ -79,7 +79,7 @@ const Parser = struct {
     fn parseIdentifier(self: *Parser) ParseError!Index {
         assert(ascii.isLower(self.buffer[self.index]) or self.buffer[self.index] == '_');
         const idx = self.index;
-        while (self.index < self.buffer.len and (ascii.isLower(self.buffer[self.index]) or self.buffer[self.index] == '_')) : (self.index += 1) {}
+        while (self.index < self.buffer.len and (ascii.isLower(self.buffer[self.index]) or ascii.isDigit(self.buffer[self.index]) or self.buffer[self.index] == '_')) : (self.index += 1) {}
 
         const ident = self.buffer[idx..self.index];
         // std.log.debug("Parser.parseIdentifier: `{s}`", .{ident});
