@@ -219,6 +219,8 @@ fn emitBinary(instr_idx: usize, ast: Ast, code: *Code, info: analyzer.Info) !voi
         const cond = args[0];
         const body = args[1];
 
+        if (code.code.items.len == 0) try code.append(.nop);
+
         const cond_idx = code.code.items.len;
         try emitInner(cond, ast, code, info);
 

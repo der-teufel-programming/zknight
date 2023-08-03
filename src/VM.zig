@@ -30,6 +30,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
     while (self.instr_idx < self.code.len) : (self.instr_idx += 1) {
         const instr = self.code[self.instr_idx];
         switch (instr) {
+            .nop => {},
             .true,
             .false,
             => try self.stack.append(.{ .bool = (instr == .true) }),
@@ -684,6 +685,7 @@ pub const Instr = union(enum) {
     orthen,
     drop,
     dupe,
+    nop,
     /// index to jump to
     jump: usize,
     /// index to jump to on falsy
