@@ -552,7 +552,16 @@ pub const Value = union(enum) {
 
                 return digits;
             },
-            .bool => |value| return if (value) &.{self} else &.{},
+            .bool => |value| {
+                var list: []Value = &.{};
+                if (value) {
+                    list = try alloc.alloc(Value, 1);
+                    list[0] = .{ .bool = true };
+                } else {
+                    list = try alloc.alloc(Value, 0);
+                }
+                return list;
+            },
             .string => |string| {
                 var list = try alloc.alloc(Value, string.len);
                 for (string, 0..) |c, idx| {
