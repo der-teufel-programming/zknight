@@ -483,7 +483,7 @@ pub const Value = union(enum) {
             .bool => |value| return @intFromBool(value),
             .string => |string| {
                 var start_idx: usize = 0;
-                while (start_idx < string.len and !std.ascii.isDigit(string[start_idx])) {
+                while (start_idx < string.len and std.ascii.isWhitespace(string[start_idx])) {
                     start_idx += 1;
                 }
                 var end_idx: usize = start_idx;
