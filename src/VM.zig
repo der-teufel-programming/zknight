@@ -495,7 +495,7 @@ pub const Value = union(enum) {
                 if (start_idx > 0 and (string[start_idx - 1] == '-' or string[start_idx - 1] == '+')) {
                     start_idx -= 1;
                 }
-                std.debug.print("[Value.toNumber]`{s}`\n", .{string[start_idx..end_idx]});
+
                 return std.fmt.parseInt(isize, string[start_idx..end_idx], 10) catch 0;
             },
             .list => |list| return @intCast(list.len),
