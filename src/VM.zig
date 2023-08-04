@@ -135,22 +135,6 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 const arg1 = (self.stack.popOrNull() orelse Value{ .number = 0 }).toNumber();
                 try self.stack.append(.{ .number = arg1 - arg2 });
             },
-            .drop => _ = self.stack.popOrNull(),
-            .dupe => {
-                const value = self.stack.getLastOrNull() orelse Value{ .number = 0 };
-                try self.stack.append(try value.dupe(self.stack.allocator));
-            },
-            .jump => |jump_idx| self.instr_idx = jump_idx,
-            .cond => |cond_idx| {
-                const condition = (self.stack.popOrNull() orelse Value{ .bool = false });
-                if (!condition.toBool()) {
-                    self.instr_idx = cond_idx;
-                }
-            },
-            .load_variable => |var_idx| try self.stack.append(try self.variables[var_idx].dupe(self.stack.allocator)),
-            .store_variable => |var_idx| self.variables[var_idx] = self.stack.getLast(),
-            .block => |blk_idx| try self.stack.append(.{ .block = blk_idx }),
-            .constant => |const_idx| try self.stack.append(self.constants[const_idx]),
             .mult => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
@@ -230,6 +214,22 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
                 try self.stack.append(result);
             },
+            .drop => _ = self.stack.popOrNull(),
+            .dupe => {
+                const value = self.stack.getLastOrNull() orelse Value{ .number = 0 };
+                try self.stack.append(try value.dupe(self.stack.allocator));
+            },
+            .jump => |jump_idx| self.instr_idx = jump_idx,
+            .cond => |cond_idx| {
+                const condition = (self.stack.popOrNull() orelse Value{ .bool = false });
+                if (!condition.toBool()) {
+                    self.instr_idx = cond_idx;
+                }
+            },
+            .load_variable => |var_idx| try self.stack.append(try self.variables[var_idx].dupe(self.stack.allocator)),
+            .store_variable => |var_idx| self.variables[var_idx] = self.stack.getLast(),
+            .block => |blk_idx| try self.stack.append(.{ .block = blk_idx }),
+            .constant => |const_idx| try self.stack.append(self.constants[const_idx]),
             .output => {
                 const arg = try (self.stack.popOrNull() orelse Value{ .string = "" }).toString(self.stack.allocator);
                 defer self.stack.allocator.free(arg);
