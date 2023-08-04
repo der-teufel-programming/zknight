@@ -286,14 +286,15 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 defer input_buffer.deinit();
 
                 var input_stream = input_buffer.writer();
+                var was_eof = false;
                 input.streamUntilDelimiter(input_stream, '\n', null) catch |err| {
                     switch (err) {
-                        error.EndOfStream => {},
+                        error.EndOfStream => was_eof = true,
                         else => return err,
                     }
                 };
 
-                if (input_buffer.items.len == 0) {
+                if (input_buffer.items.len == 0 and was_eof) {
                     try self.stack.append(.null);
                 } else {
                     try self.stack.append(.{ .string = std.mem.trimRight(u8, try input_buffer.toOwnedSlice(), "\r") });

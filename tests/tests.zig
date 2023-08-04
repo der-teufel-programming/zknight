@@ -29,6 +29,7 @@ const Case = struct {
 const test_cases = [_]Case{
     makeTest("0", null, "0"),
     makeTest("P", "foo", "\"foo\""),
+    makeTest("+ P P", "\n\r\nx", "\"\""),
 };
 
 fn makeTest(code: []const u8, input: ?[]const u8, output: []const u8) Case {
