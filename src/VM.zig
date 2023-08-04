@@ -186,10 +186,14 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .div => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const num2 = arg2.toNumber();
+                if (sanitize) {
+                    if (arg1 != .number or num2 == 0) return 255;
+                }
                 var result: Value = undefined;
                 switch (arg1) {
                     .number => |number| result = .{ .number = std.math.divTrunc(isize, number, arg2.toNumber()) catch 0 },
-                    else => {},
+                    else => unreachable,
                 }
                 try self.stack.append(result);
             },
