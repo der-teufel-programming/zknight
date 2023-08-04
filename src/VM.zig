@@ -37,7 +37,10 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .null => try self.stack.append(.null),
             .empty_list => try self.stack.append(.{ .list = &.{} }),
             .call => {
-                const block_idx = self.stack.popOrNull() orelse continue;
+                const block_idx = self.stack.popOrNull() orelse {
+                    if (sanitize) return 250;
+                    continue;
+                };
                 var block = self.blocks[block_idx.block];
                 const index = self.instr_idx;
                 std.mem.swap([]const Instr, &self.code, &block);
@@ -50,7 +53,10 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .quit => {
-                var value = self.stack.popOrNull() orelse Value{ .number = 0 };
+                var value = self.stack.popOrNull() orelse blk: {
+                    if (sanitize) return 250;
+                    break :blk Value{ .number = 0 };
+                };
                 return @intCast(value.toNumber());
             },
             .length => {
@@ -73,7 +79,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 switch (value) {
                     .number => |number| ascii = .{ .string = &.{@as(u8, @truncate(std.math.absCast(number)))} },
                     .string => |string| ascii = .{ .number = string[0] },
-                    else => {},
+                    else => if (sanitize) return 255,
                 }
                 try self.stack.append(ascii);
             },
@@ -89,7 +95,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 switch (value) {
                     .string => |string| head = .{ .string = string[0..1] },
                     .list => |list| head = list[0],
-                    else => {},
+                    else => if (sanitize) return 255,
                 }
                 try self.stack.append(head);
             },
@@ -99,7 +105,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 switch (value) {
                     .string => |string| tail = .{ .string = string[1..] },
                     .list => |list| tail = .{ .list = list[1..] },
-                    else => {},
+                    else => if (sanitize) return 255,
                 }
                 try self.stack.append(tail);
             },
@@ -731,3 +737,5 @@ pub const Instr = union(enum) {
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
+const build_options = @import("build_options");
+const sanitize = build_options.sanitize;

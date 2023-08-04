@@ -5,12 +5,19 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const sanitize = b.option(bool, "sanitize", "Should the interpreter error on some of UB") orelse false;
+
     const exe = b.addExecutable(.{
         .name = "zknight",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
+
+    var opts = b.addOptions();
+    opts.addOption(bool, "sanitize", sanitize);
+
+    exe.addOptions("build_options", opts);
 
     b.installArtifact(exe);
 
