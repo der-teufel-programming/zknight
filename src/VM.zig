@@ -172,7 +172,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 var result: Value = undefined;
                 switch (arg1) {
-                    .number => |number| result = .{ .number = std.math.mod(isize, number, arg2.toNumber()) catch 0 },
+                    .number => |number| result = .{ .number = std.math.mod(isize, number, arg2.toNumber()) catch return 255 },
                     else => {},
                 }
                 try self.stack.append(result);
@@ -286,7 +286,12 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 defer input_buffer.deinit();
 
                 var input_stream = input_buffer.writer();
-                try input.streamUntilDelimiter(input_stream, '\n', null);
+                input.streamUntilDelimiter(input_stream, '\n', null) catch |err| {
+                    switch (err) {
+                        error.EndOfStream => {},
+                        else => return err,
+                    }
+                };
 
                 if (input_buffer.items.len == 0) {
                     try self.stack.append(.null);
@@ -724,3 +729,4 @@ pub const Instr = union(enum) {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const builtin = @import("builtin");
