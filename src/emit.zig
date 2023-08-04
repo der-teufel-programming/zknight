@@ -188,6 +188,10 @@ fn emitUnary(instr_idx: usize, ast: Ast, code: *Code, info: analyzer.Info) !void
     if (func == .function_B) {
         try emitBlock(arg, ast, code, info);
     } else {
+        if (func == .function_O and ast[arg].tag == .identifier) {
+            try code.append(.invalid);
+            return;
+        }
         try emitInner(arg, ast, code, info);
 
         switch (func) {

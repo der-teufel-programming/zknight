@@ -31,6 +31,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
         const instr = self.code[self.instr_idx];
         switch (instr) {
             .nop => {},
+            .invalid => return 255,
             .true,
             .false,
             => try self.stack.append(.{ .bool = (instr == .true) }),
@@ -41,6 +42,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     if (sanitize) return 250;
                     continue;
                 };
+                if (sanitize) {
+                    if (block_idx != .block) return 255;
+                }
                 var block = self.blocks[block_idx.block];
                 const index = self.instr_idx;
                 std.mem.swap([]const Instr, &self.code, &block);
@@ -57,20 +61,34 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     if (sanitize) return 250;
                     break :blk Value{ .number = 0 };
                 };
+                if (sanitize) {
+                    if (value == .block) return error.BlockNotAllowed;
+                }
                 return @intCast(value.toNumber());
             },
             .length => {
-                var value = self.stack.popOrNull() orelse Value{ .list = &.{} };
+                const value = self.stack.popOrNull() orelse Value{ .list = &.{} };
+                if (sanitize) {
+                    if (value == .block) return 255;
+                }
                 const list = try value.toList(self.stack.allocator);
                 defer self.stack.allocator.free(list);
                 try self.stack.append(.{ .number = @intCast(list.len) });
             },
             .not => {
-                var value = self.stack.popOrNull() orelse Value{ .bool = false };
+                const value = self.stack.popOrNull() orelse Value{ .bool = false };
+
+                if (sanitize) {
+                    if (value == .block) return 255;
+                }
+
                 try self.stack.append(.{ .bool = !value.toBool() });
             },
             .negate => {
-                var value = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const value = self.stack.popOrNull() orelse Value{ .number = 0 };
+                if (sanitize) {
+                    if (value == .block) return 255;
+                }
                 try self.stack.append(.{ .number = -(value.toNumber()) });
             },
             .ascii => {
@@ -113,6 +131,10 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
 
+                if (sanitize) {
+                    if (arg1 == .block or arg2 == .block) return 255;
+                }
+
                 var result: Value = undefined;
                 switch (arg1) {
                     .number => |number| result = .{ .number = number + (arg2.toNumber()) },
@@ -126,18 +148,31 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                         defer self.stack.allocator.free(list2);
                         result = .{ .list = try std.mem.concat(self.stack.allocator, Value, &.{ list, list2 }) };
                     },
-                    else => {},
+                    else => if (sanitize) return 255,
                 }
                 try self.stack.append(result);
             },
             .sub => {
-                const arg2 = (self.stack.popOrNull() orelse Value{ .number = 0 }).toNumber();
-                const arg1 = (self.stack.popOrNull() orelse Value{ .number = 0 }).toNumber();
-                try self.stack.append(.{ .number = arg1 - arg2 });
+                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+
+                if (sanitize) {
+                    if (arg1 == .block or arg2 == .block) return 255;
+                }
+
+                if (sanitize) {
+                    if (arg1 != .number) return 255;
+                }
+                try self.stack.append(.{ .number = arg1.toNumber() - arg2.toNumber() });
             },
             .mult => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+
+                if (sanitize) {
+                    if (arg1 == .block or arg2 == .block) return 255;
+                }
+
                 var result: Value = undefined;
                 switch (arg1) {
                     .number => |number| result = .{ .number = number * arg2.toNumber() },
@@ -153,13 +188,19 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                         try value_builder.appendNTimes(list, @intCast(str2));
                         result = .{ .list = try std.mem.concat(self.stack.allocator, Value, try value_builder.toOwnedSlice()) };
                     },
-                    else => {},
+                    else => if (sanitize) return 255,
                 }
                 try self.stack.append(result);
             },
             .mod => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                if (sanitize) {
+                    const num2 = arg2.toNumber();
+                    if (arg1 != .number or num2 == 0) return 255;
+                    const num1 = arg1.toNumber();
+                    if (num1 < 0 or num2 < 0) return 255;
+                }
                 var result: Value = undefined;
                 switch (arg1) {
                     .number => |number| result = .{ .number = std.math.mod(isize, number, arg2.toNumber()) catch return 255 },
@@ -170,24 +211,31 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .div => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const num2 = arg2.toNumber();
+
                 if (sanitize) {
+                    const num2 = arg2.toNumber();
                     if (arg1 != .number or num2 == 0) return 255;
                 }
                 var result: Value = undefined;
                 switch (arg1) {
                     .number => |number| result = .{ .number = std.math.divTrunc(isize, number, arg2.toNumber()) catch 0 },
-                    else => unreachable,
+                    else => {},
                 }
                 try self.stack.append(result);
             },
             .exp => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                if (sanitize) {
+                    if (arg1 == .block or arg2 == .block) return 255;
+                }
                 var result: Value = undefined;
                 switch (arg1) {
                     .number => |number1| {
                         const number2 = arg2.toNumber();
+                        if (sanitize) {
+                            if (number1 == 0 and number2 < 0) return 255;
+                        }
                         result = .{ .number = std.math.powi(isize, number1, number2) catch 0 };
                     },
                     .list => |list1| {
@@ -210,7 +258,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                             result = .{ .string = res };
                         }
                     },
-                    else => {},
+                    else => if (sanitize) return 255,
                 }
                 try self.stack.append(result);
             },
@@ -222,6 +270,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .jump => |jump_idx| self.instr_idx = jump_idx,
             .cond => |cond_idx| {
                 const condition = (self.stack.popOrNull() orelse Value{ .bool = false });
+                if (sanitize) {
+                    if (condition == .block) return 255;
+                }
                 if (!condition.toBool()) {
                     self.instr_idx = cond_idx;
                 }
@@ -231,14 +282,20 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .block => |blk_idx| try self.stack.append(.{ .block = blk_idx }),
             .constant => |const_idx| try self.stack.append(self.constants[const_idx]),
             .output => {
-                const arg = try (self.stack.popOrNull() orelse Value{ .string = "" }).toString(self.stack.allocator);
-                defer self.stack.allocator.free(arg);
-                const backslash_end = if (arg.len == 0) false else arg[arg.len - 1] == '\\';
+                const arg = self.stack.popOrNull() orelse Value{ .string = "" };
+
+                if (sanitize) {
+                    if (arg == .block) return 255;
+                }
+
+                const string = try arg.toString(self.stack.allocator);
+                defer self.stack.allocator.free(string);
+                const backslash_end = if (string.len == 0) false else string[string.len - 1] == '\\';
                 var writer = output.writer();
                 if (backslash_end) {
-                    try writer.writeAll(arg[0 .. arg.len - 1]);
+                    try writer.writeAll(string[0 .. string.len - 1]);
                 } else {
-                    try writer.writeAll(arg);
+                    try writer.writeAll(string);
                     try writer.writeByte('\n');
                 }
                 try output.flush();
@@ -254,12 +311,22 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
 
+                if (sanitize) {
+                    if (arg1 != .number and arg1 != .bool and arg1 != .string and arg1 != .list) return 255;
+                    if (arg2 == .block) return 255;
+                }
+
                 var result: Value = .{ .bool = (try arg1.order(arg2, self.stack.allocator)) == .lt };
                 try self.stack.append(result);
             },
             .greater => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+
+                if (sanitize) {
+                    if (arg1 != .number and arg1 != .bool and arg1 != .string and arg1 != .list) return 255;
+                    if (arg2 == .block) return 255;
+                }
 
                 var result: Value = .{ .bool = (try arg1.order(arg2, self.stack.allocator)) == .gt };
                 try self.stack.append(result);
@@ -268,12 +335,20 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
 
+                if (sanitize) {
+                    if (arg1 == .block or arg2 == .block) return 255;
+                }
+
                 var result: Value = .{ .bool = arg1.equals(arg2) };
                 try self.stack.append(result);
             },
             .andthen => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+
+                if (sanitize) {
+                    if (arg1 == .block or arg2 == .block) return 255;
+                }
 
                 if (!arg1.toBool()) {
                     try self.stack.append(arg1);
@@ -284,6 +359,10 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .orthen => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+
+                if (sanitize) {
+                    if (arg1 == .block or arg2 == .block) return 255;
+                }
 
                 if (arg1.toBool()) {
                     try self.stack.append(arg1);
@@ -314,9 +393,16 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.stack.append(.{ .number = self.rand.intRangeAtMost(isize, 0, std.math.maxInt(isize)) });
             },
             .get => {
-                const len: usize = @intCast((self.stack.popOrNull() orelse Value{ .number = 0 }).toNumber());
-                const idx: usize = @intCast((self.stack.popOrNull() orelse Value{ .number = 0 }).toNumber());
+                const len_arg = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const idx_arg = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg = self.stack.popOrNull() orelse Value{ .number = 0 };
+
+                if (sanitize) {
+                    if (len_arg == .block or idx_arg == .block or arg == .block) return 255;
+                }
+
+                const len: usize = @intCast(len_arg.toNumber());
+                const idx: usize = @intCast(idx_arg.toNumber());
                 switch (arg) {
                     .list => |list| {
                         const new_list = list[idx..][0..len];
@@ -333,9 +419,14 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             },
             .set => {
                 const new = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const len: usize = @intCast((self.stack.popOrNull() orelse Value{ .number = 0 }).toNumber());
-                const idx: usize = @intCast((self.stack.popOrNull() orelse Value{ .number = 0 }).toNumber());
+                const len_arg = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const idx_arg = self.stack.popOrNull() orelse Value{ .number = 0 };
                 const arg = self.stack.popOrNull() orelse Value{ .number = 0 };
+                if (sanitize) {
+                    if (new == .block or len_arg == .block or idx_arg == .block or arg == .block) return 255;
+                }
+                const len: usize = @intCast(len_arg.toNumber());
+                const idx: usize = @intCast(idx_arg.toNumber());
                 switch (arg) {
                     .list => |list| {
                         const new_list_one = list[0..idx];
@@ -722,6 +813,7 @@ pub const Instr = union(enum) {
     drop,
     dupe,
     nop,
+    invalid,
     /// index to jump to
     jump: usize,
     /// index to jump to on falsy
