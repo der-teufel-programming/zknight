@@ -17,6 +17,11 @@ const Parser = struct {
         };
     }
 
+    pub fn deinit(self: *Parser) void {
+        self.nodes.deinit(self.allocator);
+        self.errors.deinit(self.allocator);
+    }
+
     pub const ParseError = error{
         UnexpectedEOF,
         InvalidCharacter,
@@ -340,7 +345,7 @@ pub const Node = struct {
 
 pub fn parse(alloc: std.mem.Allocator, buffer: []const u8) ![]const Node {
     var parser = Parser.init(alloc, buffer);
-    errdefer parser.nodes.deinit(alloc);
+    errdefer parser.deinit();
     errdefer {
         for (parser.nodes.items) |*node| {
             switch (node.data) {
@@ -361,7 +366,6 @@ pub fn parse(alloc: std.mem.Allocator, buffer: []const u8) ![]const Node {
         },
         else => return err,
     };
-    parser.errors.deinit(alloc);
     return parser.nodes.toOwnedSlice(alloc);
 }
 

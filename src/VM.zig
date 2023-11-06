@@ -95,7 +95,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 var value = self.stack.popOrNull() orelse Value{ .string = "" };
                 var ascii: Value = undefined;
                 switch (value) {
-                    .number => |number| ascii = .{ .string = &.{@as(u8, @truncate(std.math.absCast(number)))} },
+                    .number => |number| ascii = .{ .string = &.{@as(u8, @truncate(@abs(number)))} },
                     .string => |string| ascii = .{ .number = string[0] },
                     else => if (sanitize) return 255,
                 }
@@ -666,10 +666,10 @@ pub const Value = union(enum) {
                     digits[0] = .{ .number = 0 };
                     return digits;
                 }
-                const digit_count = std.fmt.count("{}", .{std.math.absCast(value)});
+                const digit_count = std.fmt.count("{}", .{@abs(value)});
                 const sgn: isize = if (value < 0) -1 else 1;
                 var digits = try alloc.alloc(Value, digit_count);
-                var number = std.math.absCast(value);
+                var number = @abs(value);
 
                 var idx: usize = 0;
                 while (number > 0) : (idx += 1) {

@@ -65,7 +65,9 @@ pub const Code = struct {
     }
 };
 
-pub fn emit(ast: Ast, alloc: Allocator, vm: *VM) !void {
+pub const EmitError = Allocator.Error || std.fmt.ParseIntError || error{InvalidStoreDestination};
+
+pub fn emit(ast: Ast, alloc: Allocator, vm: *VM) EmitError!void {
     var code = Code.init(alloc);
     defer code.deinit();
 
@@ -79,7 +81,7 @@ pub fn emit(ast: Ast, alloc: Allocator, vm: *VM) !void {
     try code.loadInto(vm);
 }
 
-fn emitInner(instr_idx: usize, ast: Ast, code: *Code, info: analyzer.Info) (Allocator.Error || std.fmt.ParseIntError)!void {
+fn emitInner(instr_idx: usize, ast: Ast, code: *Code, info: analyzer.Info) EmitError!void {
     switch (ast[instr_idx].tag) {
         .function_at,
         .function_T,
@@ -129,7 +131,8 @@ fn emitStore(instr_idx: usize, ast: Ast, code: *Code, info: analyzer.Info) !void
     assert(ast[instr_idx].tag == .function_equal);
 
     const var_idx = ast[instr_idx].data.arguments[0];
-    assert(ast[var_idx].tag == .identifier);
+    // assert(ast[var_idx].tag == .identifier);
+    if (ast[var_idx].tag != .identifier) return error.InvalidStoreDestination;
 
     const var_name = ast[var_idx].data.bytes;
     const idx = info.variables.get(var_name).?;

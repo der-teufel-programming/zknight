@@ -5,7 +5,7 @@ const emit = @import("emit.zig");
 const VM = @import("VM.zig").VM;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
     var alloc = gpa.allocator();
