@@ -22,7 +22,7 @@ pub fn analyze(ast: []const Node, alloc: std.mem.Allocator) !Info {
         switch (node.tag) {
             .identifier => {
                 const name = node.data.bytes;
-                var gop = try info.variables.getOrPut(name);
+                const gop = try info.variables.getOrPut(name);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = next_index;
                     next_index += 1;

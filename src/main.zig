@@ -43,16 +43,16 @@ pub fn main() !void {
         var info = try analyzer.analyze(ast, alloc);
         defer info.deinit();
         const init = std.crypto.random.int(u64);
-        var xorisho = std.rand.DefaultPrng.init(init);
+        var xorisho = std.Random.DefaultPrng.init(init);
         var vm = VM.init(alloc, xorisho.random());
         defer vm.deinit();
         try emit.emit(ast, alloc, &vm);
 
         var stdout = std.io.getStdOut();
-        var raw_output = stdout.writer();
+        const raw_output = stdout.writer();
         var output = std.io.bufferedWriter(raw_output);
         const stdin = std.io.getStdIn();
-        var input = stdin.reader();
+        const input = stdin.reader();
         const exit_code = (try vm.execute(&output, input)) orelse 0;
 
         std.process.exit(exit_code);

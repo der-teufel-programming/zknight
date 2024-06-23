@@ -5,10 +5,10 @@ variables: []Value = &.{},
 blocks: []const []const Instr = &.{},
 code: []const Instr = &.{},
 stack: std.ArrayList(Value),
-rand: std.rand.Random,
+rand: std.Random,
 instr_idx: usize = 0,
 
-pub fn init(alloc: Allocator, r: std.rand.Random) VM {
+pub fn init(alloc: Allocator, r: std.Random) VM {
     return .{
         .stack = std.ArrayList(Value).init(alloc),
         .rand = r,
@@ -92,7 +92,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.stack.append(.{ .number = -(value.toNumber()) });
             },
             .ascii => {
-                var value = self.stack.popOrNull() orelse Value{ .string = "" };
+                const value = self.stack.popOrNull() orelse Value{ .string = "" };
                 var ascii: Value = undefined;
                 switch (value) {
                     .number => |number| ascii = .{ .string = &.{@as(u8, @truncate(@abs(number)))} },
@@ -108,7 +108,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.stack.append(Value{ .list = new_list });
             },
             .head => {
-                var value = self.stack.popOrNull() orelse Value{ .string = "" };
+                const value = self.stack.popOrNull() orelse Value{ .string = "" };
                 var head: Value = undefined;
                 switch (value) {
                     .string => |string| head = .{ .string = string[0..1] },
@@ -118,7 +118,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.stack.append(head);
             },
             .tail => {
-                var value = self.stack.popOrNull() orelse Value{ .string = "" };
+                const value = self.stack.popOrNull() orelse Value{ .string = "" };
                 var tail: Value = undefined;
                 switch (value) {
                     .string => |string| tail = .{ .string = string[1..] },
@@ -254,7 +254,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                                     self.stack.allocator.free(str);
                                 }
                             }
-                            var res = try std.mem.join(self.stack.allocator, string2, list_strings);
+                            const res = try std.mem.join(self.stack.allocator, string2, list_strings);
                             result = .{ .string = res };
                         }
                     },
@@ -303,7 +303,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             },
             .dump => {
                 const arg = self.stack.getLastOrNull() orelse Value{ .number = 0 };
-                var writer = output.writer();
+                const writer = output.writer();
                 try arg.dump(writer);
                 try output.flush();
             },
@@ -316,7 +316,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     if (arg2 == .block) return 255;
                 }
 
-                var result: Value = .{ .bool = (try arg1.order(arg2, self.stack.allocator)) == .lt };
+                const result: Value = .{ .bool = (try arg1.order(arg2, self.stack.allocator)) == .lt };
                 try self.stack.append(result);
             },
             .greater => {
@@ -328,7 +328,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     if (arg2 == .block) return 255;
                 }
 
-                var result: Value = .{ .bool = (try arg1.order(arg2, self.stack.allocator)) == .gt };
+                const result: Value = .{ .bool = (try arg1.order(arg2, self.stack.allocator)) == .gt };
                 try self.stack.append(result);
             },
             .equal => {
@@ -339,7 +339,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     if (arg1 == .block or arg2 == .block) return 255;
                 }
 
-                var result: Value = .{ .bool = arg1.equals(arg2) };
+                const result: Value = .{ .bool = arg1.equals(arg2) };
                 try self.stack.append(result);
             },
             .andthen => {
@@ -374,7 +374,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 var input_buffer = std.ArrayList(u8).init(self.stack.allocator);
                 defer input_buffer.deinit();
 
-                var input_stream = input_buffer.writer();
+                const input_stream = input_buffer.writer();
                 var was_eof = false;
                 input.streamUntilDelimiter(input_stream, '\n', null) catch |err| {
                     switch (err) {
@@ -540,11 +540,11 @@ pub const Value = union(enum) {
         switch (self) {
             .number, .bool, .block, .null => return self,
             .string => {
-                var new_string = try alloc.dupe(u8, self.string);
+                const new_string = try alloc.dupe(u8, self.string);
                 return .{ .string = new_string };
             },
             .list => {
-                var new_list = try alloc.dupe(Value, self.list);
+                const new_list = try alloc.dupe(Value, self.list);
                 return .{ .list = new_list };
             },
         }

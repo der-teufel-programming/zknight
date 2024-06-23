@@ -14,7 +14,7 @@ fn addTest(b: *Build, exe: *Build.Step.Compile, test_code: []const u8, test_stdi
 pub fn addTests(b: *Build, exe: *Build.Step.Compile) *Build.Step {
     var tests = b.step("", "");
     for (test_cases) |test_case| {
-        var step = addTest(b, exe, test_case.code, test_case.input, test_case.output);
+        const step = addTest(b, exe, test_case.code, test_case.input, test_case.output);
         tests.dependOn(step);
     }
     return tests;
