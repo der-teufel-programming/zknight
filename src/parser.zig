@@ -1,15 +1,16 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const ascii = std.ascii;
+const Allocator = std.mem.Allocator;
 
 const Parser = struct {
     buffer: []const u8,
     nodes: std.ArrayListUnmanaged(Node) = .{},
     errors: std.ArrayListUnmanaged(usize) = .{},
     index: usize,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
 
-    pub fn init(alloc: std.mem.Allocator, data: []const u8) Parser {
+    pub fn init(alloc: Allocator, data: []const u8) Parser {
         return .{
             .buffer = data,
             .allocator = alloc,
@@ -25,7 +26,7 @@ const Parser = struct {
     pub const ParseError = error{
         UnexpectedEOF,
         InvalidCharacter,
-    } || std.mem.Allocator.Error;
+    } || Allocator.Error;
 
     pub fn parse(self: *Parser) ParseError!Index {
         // std.log.debug("Parser.parse at idx = {}", .{self.index});
@@ -92,6 +93,10 @@ const Parser = struct {
         try self.nodes.append(self.allocator, .{
             .tag = .identifier,
             .data = .{ .bytes = ident },
+            .loc = .{
+                .start = idx,
+                .end = self.index,
+            },
         });
         return @intCast(ident_idx);
     }
@@ -107,11 +112,16 @@ const Parser = struct {
         try self.nodes.append(self.allocator, .{
             .tag = .number_literal,
             .data = .{ .bytes = number },
+            .loc = .{
+                .start = idx,
+                .end = self.index,
+            },
         });
         return @intCast(number_idx);
     }
 
     fn parseFunction(self: *Parser) ParseError!Index {
+        const func_start = self.index;
         const func = self.buffer[self.index];
         if (Parser.upperFunc(func)) {
             while (self.index < self.buffer.len and (ascii.isUpper(self.buffer[self.index]) or self.buffer[self.index] == '_')) : (self.index += 1) {}
@@ -125,12 +135,18 @@ const Parser = struct {
         try self.nodes.append(self.allocator, .{
             .tag = Node.Tag.function(func).?,
             .data = .{ .arguments = &.{} },
+            .loc = .{
+                .start = func_start,
+                .end = self.index,
+            },
         });
+
         for (0..func_arity) |arg_idx| {
             const idx = try self.parse();
             args[arg_idx] = idx;
         }
         self.nodes.items[func_idx].data.arguments = args;
+
         return @intCast(func_idx);
     }
 
@@ -150,7 +166,12 @@ const Parser = struct {
         try self.nodes.append(self.allocator, .{
             .tag = .string_literal,
             .data = .{ .bytes = string },
+            .loc = .{
+                .start = idx - 1,
+                .end = self.index,
+            },
         });
+
         return @intCast(string_idx);
     }
 
@@ -177,6 +198,7 @@ pub const Index = u32;
 pub const Node = struct {
     tag: Tag,
     data: Data,
+    loc: Loc,
 
     pub const Tag = enum {
         number_literal,
@@ -312,6 +334,11 @@ pub const Node = struct {
     pub const Data = union(enum) {
         bytes: []const u8,
         arguments: []const Index,
+    };
+
+    pub const Loc = struct {
+        start: usize,
+        end: usize,
     };
 
     pub fn debugPrint(self: Node, ast: []const Node, indent: usize) void {
