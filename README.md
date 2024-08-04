@@ -1,2 +1,2 @@
 # zknight
-Implementation of Knight in Zig
+Implementation of [Knight](https://github.com/knight-lang/knight-lang) in Zig
