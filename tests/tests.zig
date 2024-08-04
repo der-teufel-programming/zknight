@@ -1,7 +1,13 @@
 const std = @import("std");
 const Build = std.Build;
 
-fn addTest(b: *Build, exe: *Build.Step.Compile, test_code: []const u8, test_stdin: ?[]const u8, expected_output: []const u8) *Build.Step {
+fn addTest(
+    b: *Build,
+    exe: *Build.Step.Compile,
+    test_code: []const u8,
+    test_stdin: ?[]const u8,
+    expected_output: []const u8,
+) *Build.Step {
     var run_step = b.addRunArtifact(exe);
     run_step.addArgs(&.{ "-e", test_code });
     run_step.expectStdOutEqual(expected_output);
@@ -14,7 +20,13 @@ fn addTest(b: *Build, exe: *Build.Step.Compile, test_code: []const u8, test_stdi
 pub fn addTests(b: *Build, exe: *Build.Step.Compile) *Build.Step {
     var tests = b.step("", "");
     for (test_cases) |test_case| {
-        const step = addTest(b, exe, test_case.code, test_case.input, test_case.output);
+        const step = addTest(
+            b,
+            exe,
+            test_case.code,
+            test_case.input,
+            test_case.output,
+        );
         tests.dependOn(step);
     }
     return tests;
@@ -34,5 +46,5 @@ const test_cases = [_]Case{
 
 fn makeTest(code: []const u8, input: ?[]const u8, output: []const u8) Case {
     const full_code = "D " ++ code;
-    return Case{ .code = full_code, .input = input, .output = output };
+    return .{ .code = full_code, .input = input, .output = output };
 }

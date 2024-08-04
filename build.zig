@@ -5,7 +5,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const sanitize = b.option(bool, "sanitize", "The interpreter will error on some of UB (default true in debug builds)") orelse (optimize == .Debug);
+    const sanitize = b.option(
+        bool,
+        "sanitize",
+        "The interpreter will error on some of UB (default true in debug builds)",
+    ) orelse (optimize == .Debug);
 
     const exe = b.addExecutable(.{
         .name = "zknight",
