@@ -27,17 +27,17 @@ pub const Token = struct {
     };
 };
 
-pub const Mode = enum {
-    /// In `strict` mode tokenizer considers
-    /// characters outside minimum ASCII subset as invalid
-    strict,
-    extended,
-};
-
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
     index: usize,
     mode: Mode,
+
+    pub const Mode = enum {
+        /// In `strict` mode tokenizer considers
+        /// characters outside minimum ASCII subset as invalid
+        strict,
+        extended,
+    };
 
     pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
         return .{
@@ -330,7 +330,7 @@ test "string literals" {
 fn testTokenize(
     source: [:0]const u8,
     expected_token_tags: []const Token.Tag,
-    mode: Mode,
+    mode: Tokenizer.Mode,
 ) !void {
     var tokenizer = Tokenizer.init(source, mode);
     for (expected_token_tags) |expected_token_tag| {
