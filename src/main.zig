@@ -58,3 +58,11 @@ pub fn main() !void {
         std.process.exit(exit_code);
     }
 }
+
+test {
+    _ = @import("VM.zig");
+    _ = @import("tokenizer.zig");
+    _ = @import("emit.zig");
+    _ = @import("analyzer.zig");
+    _ = @import("parser.zig");
+}
