@@ -1,6 +1,6 @@
 const std = @import("std");
-const parser = @import("parser.zig");
-const Node = parser.Node;
+const Ast = @import("parser.zig").Ast;
+const Node = Ast.Node;
 
 pub const Info = struct {
     variables: std.StringHashMap(u32),
@@ -14,14 +14,18 @@ pub const Info = struct {
     }
 };
 
-pub fn analyze(ast: []const Node, alloc: std.mem.Allocator) !Info {
+pub fn analyze(ast: Ast, alloc: std.mem.Allocator) !Info {
     var info = Info.init(alloc);
-    var next_index: u32 = 0;
     errdefer info.deinit();
-    for (ast) |node| {
-        switch (node.tag) {
+
+    var next_index: u32 = 0;
+
+    const tags = ast.nodes.items(.tag);
+    const data = ast.nodes.items(.data);
+    for (tags, data) |tag, dat| {
+        switch (tag) {
             .identifier => {
-                const name = node.data.bytes;
+                const name = ast.string_data[dat.idx..][0..dat.length];
                 const gop = try info.variables.getOrPut(name);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = next_index;
