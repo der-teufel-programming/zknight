@@ -36,7 +36,11 @@ pub const Tokenizer = struct {
         /// In `strict` mode tokenizer considers
         /// characters outside minimum ASCII subset as invalid
         strict,
+        /// In `strict_no_parens` the tokenizer ignores `(` and `)`
+        strict_no_parens,
         extended,
+        /// In `extended_no_parens` the tokenizer ignores `(` and `)`
+        extended_no_parens,
     };
 
     pub fn init(buffer: [:0]const u8, mode: Mode) Tokenizer {
@@ -110,15 +114,21 @@ pub const Tokenizer = struct {
                         setLogState(&state, .identifier);
                         result.tag = .identifier;
                     },
-                    '(' => {
-                        result.tag = .l_paren;
-                        self.index += 1;
-                        break;
+                    '(' => switch (self.mode) {
+                        .strict_no_parens, .extended_no_parens => result.loc.start = self.index + 1,
+                        .strict, .extended => {
+                            result.tag = .l_paren;
+                            self.index += 1;
+                            break;
+                        },
                     },
-                    ')' => {
-                        result.tag = .r_paren;
-                        self.index += 1;
-                        break;
+                    ')' => switch (self.mode) {
+                        .strict_no_parens, .extended_no_parens => result.loc.start = self.index + 1,
+                        .strict, .extended => {
+                            result.tag = .r_paren;
+                            self.index += 1;
+                            break;
+                        },
                     },
                     'A'...'Z' => {
                         setLogState(&state, .function_name);
