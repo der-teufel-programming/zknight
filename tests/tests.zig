@@ -17,19 +17,22 @@ fn addTest(
     return &run_step.step;
 }
 
-pub fn addTests(b: *Build, exe: *Build.Step.Compile) *Build.Step {
-    var tests = b.step("", "");
+pub fn addTests(
+    b: *Build,
+    test_step: *Build.Step,
+    exe: *Build.Step.Compile,
+) void {
     for (test_cases) |test_case| {
-        const step = addTest(
-            b,
-            exe,
-            test_case.code,
-            test_case.input,
-            test_case.output,
+        test_step.dependOn(
+            addTest(
+                b,
+                exe,
+                test_case.code,
+                test_case.input,
+                test_case.output,
+            ),
         );
-        tests.dependOn(step);
     }
-    return tests;
 }
 
 const Case = struct {
