@@ -1,29 +1,43 @@
-pub const VM = @This();
+const VM = @This();
 
 constants: []const Value = &.{},
 variables: []Value = &.{},
 blocks: []const []const Instr = &.{},
 code: []const Instr = &.{},
-stack: std.ArrayList(Value),
+stack: std.ArrayListUnmanaged(Value) = .{},
 rand: std.Random,
+gpa: Allocator,
 instr_idx: usize = 0,
 
-pub fn init(alloc: Allocator, r: std.Random) VM {
+pub fn init(gpa: Allocator, r: std.Random) VM {
     return .{
-        .stack = std.ArrayList(Value).init(alloc),
+        .gpa = gpa,
         .rand = r,
     };
 }
 
 pub fn deinit(self: *VM) void {
     for (self.stack.items) |v| {
-        switch (v) {
-            .list => |list| self.stack.allocator.free(list),
-            .string => |str| self.stack.allocator.free(str),
-            else => {},
-        }
+        v.free(self.gpa);
     }
-    self.stack.deinit();
+    for (self.constants) |c| {
+        c.free(self.gpa);
+    }
+    self.gpa.free(self.constants);
+    self.stack.deinit(self.gpa);
+    self.gpa.free(self.code);
+    for (self.variables) |v| {
+        v.free(self.gpa);
+    }
+    self.gpa.free(self.variables);
+    for (self.blocks) |blk| {
+        self.gpa.free(blk);
+    }
+    self.gpa.free(self.blocks);
+}
+
+fn push(self: *VM, value: Value) !void {
+    try self.stack.append(self.gpa, value);
 }
 
 pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
@@ -34,9 +48,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .invalid => return 255,
             .true,
             .false,
-            => try self.stack.append(.{ .bool = (instr == .true) }),
-            .null => try self.stack.append(.null),
-            .empty_list => try self.stack.append(.{ .list = &.{} }),
+            => try self.push(.{ .bool = (instr == .true) }),
+            .null => try self.push(.null),
+            .empty_list => try self.push(.{ .list = &.{} }),
             .call => {
                 const block_idx = self.stack.popOrNull() orelse {
                     if (sanitize) return 250;
@@ -67,69 +81,70 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 return @intCast(value.toNumber());
             },
             .length => {
-                const value = self.stack.popOrNull() orelse Value{ .list = &.{} };
+                const value: Value = self.stack.popOrNull() orelse .{ .list = &.{} };
                 if (sanitize) {
                     if (value == .block) return 255;
                 }
-                const list = try value.toList(self.stack.allocator);
-                defer self.stack.allocator.free(list);
-                try self.stack.append(.{ .number = @intCast(list.len) });
+                const list = try value.toList(self.gpa);
+                defer self.gpa.free(list);
+                try self.push(.{ .number = @intCast(list.len) });
             },
             .not => {
-                const value = self.stack.popOrNull() orelse Value{ .bool = false };
+                const value: Value = self.stack.popOrNull() orelse .{ .bool = false };
 
                 if (sanitize) {
                     if (value == .block) return 255;
                 }
 
-                try self.stack.append(.{ .bool = !value.toBool() });
+                try self.push(.{ .bool = !value.toBool() });
             },
             .negate => {
-                const value = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const value: Value = self.stack.popOrNull() orelse .{ .number = 0 };
                 if (sanitize) {
                     if (value == .block) return 255;
                 }
-                try self.stack.append(.{ .number = -(value.toNumber()) });
+                try self.push(.{ .number = -(value.toNumber()) });
             },
             .ascii => {
-                const value = self.stack.popOrNull() orelse Value{ .string = "" };
+                const value: Value = self.stack.popOrNull() orelse .{ .string = try self.gpa.dupe(u8, "") };
+                defer value.free(self.gpa);
+
                 var ascii: Value = undefined;
                 switch (value) {
-                    .number => |number| ascii = .{ .string = &.{@as(u8, @truncate(@abs(number)))} },
+                    .number => |number| ascii = .{ .string = try self.gpa.dupe(u8, &.{@as(u8, @truncate(@abs(number)))}) },
                     .string => |string| ascii = .{ .number = string[0] },
                     else => if (sanitize) return 255,
                 }
-                try self.stack.append(ascii);
+                try self.push(ascii);
             },
             .box => {
-                const value = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const new_list = try self.stack.allocator.alloc(Value, 1);
-                new_list[0] = value;
-                try self.stack.append(Value{ .list = new_list });
+                const value: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                try self.push(.{ .list = try self.gpa.dupe(Value, &.{value}) });
             },
             .head => {
-                const value = self.stack.popOrNull() orelse Value{ .string = "" };
+                const value: Value = self.stack.popOrNull() orelse .{ .string = try self.gpa.dupe(u8, "") };
+
                 var head: Value = undefined;
                 switch (value) {
                     .string => |string| head = .{ .string = string[0..1] },
                     .list => |list| head = list[0],
                     else => if (sanitize) return 255,
                 }
-                try self.stack.append(head);
+                try self.push(head);
             },
             .tail => {
-                const value = self.stack.popOrNull() orelse Value{ .string = "" };
+                const value: Value = self.stack.popOrNull() orelse .{ .string = try self.gpa.dupe(u8, "") };
                 var tail: Value = undefined;
                 switch (value) {
                     .string => |string| tail = .{ .string = string[1..] },
                     .list => |list| tail = .{ .list = list[1..] },
                     else => if (sanitize) return 255,
                 }
-                try self.stack.append(tail);
+                try self.push(tail);
             },
             .add => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     if (arg1 == .block or arg2 == .block) return 255;
@@ -139,22 +154,24 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 switch (arg1) {
                     .number => |number| result = .{ .number = number + (arg2.toNumber()) },
                     .string => |string| {
-                        const str2 = try arg2.toString(self.stack.allocator);
-                        result = .{ .string = try std.mem.concat(self.stack.allocator, u8, &.{ string, str2 }) };
+                        const str2 = try arg2.toString(self.gpa);
+                        defer self.gpa.free(str2);
+                        result = .{ .string = try std.mem.concat(self.gpa, u8, &.{ string, str2 }) };
                     },
                     .list => |list| {
-                        const list2 = try arg2.toList(self.stack.allocator);
-                        defer self.stack.allocator.free(list);
-                        defer self.stack.allocator.free(list2);
-                        result = .{ .list = try std.mem.concat(self.stack.allocator, Value, &.{ list, list2 }) };
+                        const list2 = try arg2.toList(self.gpa);
+                        defer self.gpa.free(list);
+                        defer self.gpa.free(list2);
+                        result = .{ .list = try std.mem.concat(self.gpa, Value, &.{ list, list2 }) };
                     },
                     else => if (sanitize) return 255,
                 }
-                try self.stack.append(result);
+                try self.push(result);
             },
             .sub => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                defer arg2.free(self.gpa);
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     if (arg1 == .block or arg2 == .block) return 255;
@@ -163,7 +180,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 if (sanitize) {
                     if (arg1 != .number) return 255;
                 }
-                try self.stack.append(.{ .number = arg1.toNumber() - arg2.toNumber() });
+                try self.push(.{ .number = arg1.toNumber() - arg2.toNumber() });
             },
             .mult => {
                 const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
@@ -178,23 +195,25 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     .number => |number| result = .{ .number = number * arg2.toNumber() },
                     .string => |string| {
                         const str2 = arg2.toNumber();
-                        var value_builder = std.ArrayList([]const u8).init(self.stack.allocator);
+                        var value_builder = std.ArrayList([]const u8).init(self.gpa);
+                        defer value_builder.deinit();
                         try value_builder.appendNTimes(string, @intCast(str2));
-                        result = .{ .string = try std.mem.concat(self.stack.allocator, u8, try value_builder.toOwnedSlice()) };
+                        result = .{ .string = try std.mem.concat(self.gpa, u8, value_builder.items) };
                     },
                     .list => |list| {
                         const str2 = arg2.toNumber();
-                        var value_builder = std.ArrayList([]const Value).init(self.stack.allocator);
+                        var value_builder = std.ArrayList([]const Value).init(self.gpa);
+                        defer value_builder.deinit();
                         try value_builder.appendNTimes(list, @intCast(str2));
-                        result = .{ .list = try std.mem.concat(self.stack.allocator, Value, try value_builder.toOwnedSlice()) };
+                        result = .{ .list = try std.mem.concat(self.gpa, Value, value_builder.items) };
                     },
                     else => if (sanitize) return 255,
                 }
-                try self.stack.append(result);
+                try self.push(result);
             },
             .mod => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
                 if (sanitize) {
                     const num2 = arg2.toNumber();
                     if (arg1 != .number or num2 == 0) return 255;
@@ -202,15 +221,16 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     if (num1 < 0 or num2 < 0) return 255;
                 }
                 var result: Value = undefined;
+
                 switch (arg1) {
                     .number => |number| result = .{ .number = std.math.mod(isize, number, arg2.toNumber()) catch return 255 },
                     else => {},
                 }
-                try self.stack.append(result);
+                try self.push(result);
             },
             .div => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     const num2 = arg2.toNumber();
@@ -221,11 +241,11 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     .number => |number| result = .{ .number = std.math.divTrunc(isize, number, arg2.toNumber()) catch 0 },
                     else => {},
                 }
-                try self.stack.append(result);
+                try self.push(result);
             },
             .exp => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
                 if (sanitize) {
                     if (arg1 == .block or arg2 == .block) return 255;
                 }
@@ -240,36 +260,37 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     },
                     .list => |list1| {
                         if (list1.len == 0) {
-                            result = .{ .string = try self.stack.allocator.dupe(u8, "") };
+                            result = .{ .string = try self.gpa.dupe(u8, "") };
                         } else {
-                            const string2 = try arg2.toString(self.stack.allocator);
-                            defer self.stack.allocator.free(string2);
-                            var list_strings = try self.stack.allocator.alloc([]const u8, list1.len);
+                            const string2 = try arg2.toString(self.gpa);
+                            defer self.gpa.free(string2);
+                            var list_strings = try self.gpa.alloc([]const u8, list1.len);
+                            defer self.gpa.free(list_strings);
+
                             for (list1, 0..) |elem, idx| {
-                                list_strings[idx] = try elem.toString(self.stack.allocator);
+                                list_strings[idx] = try elem.toString(self.gpa);
                             }
-                            defer self.stack.allocator.free(list_strings);
                             defer {
                                 for (list_strings) |str| {
-                                    self.stack.allocator.free(str);
+                                    self.gpa.free(str);
                                 }
                             }
-                            const res = try std.mem.join(self.stack.allocator, string2, list_strings);
+                            const res = try std.mem.join(self.gpa, string2, list_strings);
                             result = .{ .string = res };
                         }
                     },
                     else => if (sanitize) return 255,
                 }
-                try self.stack.append(result);
+                try self.push(result);
             },
             .drop => _ = self.stack.popOrNull(),
             .dupe => {
-                const value = self.stack.getLastOrNull() orelse Value{ .number = 0 };
-                try self.stack.append(try value.dupe(self.stack.allocator));
+                const value: Value = self.stack.getLastOrNull() orelse .{ .number = 0 };
+                try self.push(try value.dupe(self.gpa));
             },
             .jump => |jump_idx| self.instr_idx = jump_idx,
             .cond => |cond_idx| {
-                const condition = (self.stack.popOrNull() orelse Value{ .bool = false });
+                const condition: Value = self.stack.popOrNull() orelse .{ .bool = false };
                 if (sanitize) {
                     if (condition == .block) return 255;
                 }
@@ -277,19 +298,21 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     self.instr_idx = cond_idx;
                 }
             },
-            .load_variable => |var_idx| try self.stack.append(try self.variables[var_idx].dupe(self.stack.allocator)),
+            .load_variable => |var_idx| try self.push(try self.variables[var_idx].dupe(self.gpa)),
             .store_variable => |var_idx| self.variables[var_idx] = self.stack.getLast(),
-            .block => |blk_idx| try self.stack.append(.{ .block = blk_idx }),
-            .constant => |const_idx| try self.stack.append(self.constants[const_idx]),
+            .block => |blk_idx| try self.push(.{ .block = blk_idx }),
+            .constant => |const_idx| try self.push(try self.constants[const_idx].dupe(self.gpa)),
             .output => {
-                const arg = self.stack.popOrNull() orelse Value{ .string = "" };
+                const arg: Value = self.stack.popOrNull() orelse try self.emptyString();
+                defer arg.free(self.gpa);
 
                 if (sanitize) {
                     if (arg == .block) return 255;
                 }
 
-                const string = try arg.toString(self.stack.allocator);
-                defer self.stack.allocator.free(string);
+                const string = try arg.toString(self.gpa);
+                defer self.gpa.free(string);
+
                 const backslash_end = if (string.len == 0) false else string[string.len - 1] == '\\';
                 var writer = output.writer();
                 if (backslash_end) {
@@ -299,79 +322,79 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     try writer.writeByte('\n');
                 }
                 try output.flush();
-                try self.stack.append(.null);
+                try self.push(.null);
             },
             .dump => {
-                const arg = self.stack.getLastOrNull() orelse Value{ .number = 0 };
+                const arg: Value = self.stack.getLastOrNull() orelse .{ .number = 0 };
                 const writer = output.writer();
                 try arg.dump(writer);
                 try output.flush();
             },
             .less => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     if (arg1 != .number and arg1 != .bool and arg1 != .string and arg1 != .list) return 255;
                     if (arg2 == .block) return 255;
                 }
 
-                const result: Value = .{ .bool = (try arg1.order(arg2, self.stack.allocator)) == .lt };
-                try self.stack.append(result);
+                const result: Value = .{ .bool = (try arg1.order(arg2, self.gpa)) == .lt };
+                try self.push(result);
             },
             .greater => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     if (arg1 != .number and arg1 != .bool and arg1 != .string and arg1 != .list) return 255;
                     if (arg2 == .block) return 255;
                 }
 
-                const result: Value = .{ .bool = (try arg1.order(arg2, self.stack.allocator)) == .gt };
-                try self.stack.append(result);
+                const result: Value = .{ .bool = (try arg1.order(arg2, self.gpa)) == .gt };
+                try self.push(result);
             },
             .equal => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     if (arg1 == .block or arg2 == .block) return 255;
                 }
 
                 const result: Value = .{ .bool = arg1.equals(arg2) };
-                try self.stack.append(result);
+                try self.push(result);
             },
             .andthen => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     if (arg1 == .block or arg2 == .block) return 255;
                 }
 
                 if (!arg1.toBool()) {
-                    try self.stack.append(arg1);
+                    try self.push(arg1);
                 } else {
-                    try self.stack.append(arg2);
+                    try self.push(arg2);
                 }
             },
             .orthen => {
-                const arg2 = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg1 = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     if (arg1 == .block or arg2 == .block) return 255;
                 }
 
                 if (arg1.toBool()) {
-                    try self.stack.append(arg1);
+                    try self.push(arg1);
                 } else {
-                    try self.stack.append(arg2);
+                    try self.push(arg2);
                 }
             },
             .prompt => {
-                var input_buffer = std.ArrayList(u8).init(self.stack.allocator);
+                var input_buffer = std.ArrayList(u8).init(self.gpa);
                 defer input_buffer.deinit();
 
                 const input_stream = input_buffer.writer();
@@ -384,18 +407,18 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 };
 
                 if (input_buffer.items.len == 0 and was_eof) {
-                    try self.stack.append(.null);
+                    try self.push(.null);
                 } else {
-                    try self.stack.append(.{ .string = std.mem.trimRight(u8, try input_buffer.toOwnedSlice(), "\r") });
+                    try self.push(.{ .string = std.mem.trimRight(u8, try input_buffer.toOwnedSlice(), "\r") });
                 }
             },
             .random => {
-                try self.stack.append(.{ .number = self.rand.intRangeAtMost(isize, 0, std.math.maxInt(isize)) });
+                try self.push(.{ .number = self.rand.intRangeAtMost(isize, 0, std.math.maxInt(isize)) });
             },
             .get => {
-                const len_arg = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const idx_arg = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const len_arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const idx_arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
 
                 if (sanitize) {
                     if (len_arg == .block or idx_arg == .block or arg == .block) return 255;
@@ -406,22 +429,22 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 switch (arg) {
                     .list => |list| {
                         const new_list = list[idx..][0..len];
-                        try self.stack.append(.{ .list = try self.stack.allocator.dupe(Value, new_list) });
-                        self.stack.allocator.free(list);
+                        try self.push(.{ .list = try self.gpa.dupe(Value, new_list) });
+                        self.gpa.free(list);
                     },
                     .string => |string| {
                         const new_string = string[idx..][0..len];
-                        try self.stack.append(.{ .string = try self.stack.allocator.dupe(u8, new_string) });
-                        self.stack.allocator.free(string);
+                        try self.push(.{ .string = try self.gpa.dupe(u8, new_string) });
+                        self.gpa.free(string);
                     },
                     else => {},
                 }
             },
             .set => {
-                const new = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const len_arg = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const idx_arg = self.stack.popOrNull() orelse Value{ .number = 0 };
-                const arg = self.stack.popOrNull() orelse Value{ .number = 0 };
+                const new: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const len_arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const idx_arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
                 if (sanitize) {
                     if (new == .block or len_arg == .block or idx_arg == .block or arg == .block) return 255;
                 }
@@ -431,23 +454,35 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     .list => |list| {
                         const new_list_one = list[0..idx];
                         const new_list_two = list[idx + len ..];
-                        const new_list_ins = try new.toList(self.stack.allocator);
-                        var new_list = try self.stack.allocator.alloc(Value, new_list_one.len + new_list_two.len + new_list_ins.len);
-                        var nidx: usize = 0;
-                        @memcpy(new_list[nidx..][0..new_list_one.len], new_list_one);
-                        nidx += new_list_one.len;
-                        @memcpy(new_list[nidx..][0..new_list_ins.len], new_list_ins);
-                        nidx += new_list_ins.len;
-                        @memcpy(new_list[nidx..][0..new_list_two.len], new_list_two);
-                        try self.stack.append(.{ .list = new_list });
-                        self.stack.allocator.free(list);
+                        const new_list_mid = try new.toList(self.gpa);
+                        defer self.gpa.free(new_list_mid);
+                        const new_list = try std.mem.concat(
+                            self.gpa,
+                            Value,
+                            &.{ new_list_one, new_list_mid, new_list_two },
+                        );
+                        // var new_list = try self.gpa.alloc(Value, new_list_one.len + new_list_two.len + new_list_mid.len);
+                        // var nidx: usize = 0;
+                        // @memcpy(new_list[nidx..][0..new_list_one.len], new_list_one);
+                        // nidx += new_list_one.len;
+                        // @memcpy(new_list[nidx..][0..new_list_mid.len], new_list_mid);
+                        // nidx += new_list_mid.len;
+                        // @memcpy(new_list[nidx..][0..new_list_two.len], new_list_two);
+                        try self.push(.{ .list = new_list });
+                        self.gpa.free(list);
                     },
                     .string => |string| {
                         const new_string_one = string[0..idx];
                         const new_string_two = string[idx + len ..];
-                        const new_string = try std.mem.join(self.stack.allocator, "", &.{ new_string_one, try new.toString(self.stack.allocator), new_string_two });
-                        try self.stack.append(.{ .string = new_string });
-                        self.stack.allocator.free(string);
+                        const new_string_mid = try new.toString(self.gpa);
+                        defer self.gpa.free(new_string_mid);
+                        const new_string = try std.mem.concat(
+                            self.gpa,
+                            u8,
+                            &.{ new_string_one, new_string_mid, new_string_two },
+                        );
+                        try self.push(.{ .string = new_string });
+                        self.gpa.free(string);
                     },
                     else => {},
                 }
@@ -459,6 +494,14 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
         }
     }
     return null;
+}
+
+inline fn emptyString(self: *VM) !Value {
+    return .{ .string = try self.gpa.dupe(u8, "") };
+}
+
+inline fn emptyList(self: *VM) !Value {
+    return .{ .list = try self.gpa.dupe(Value, &.{}) };
 }
 
 pub fn debugPrint(self: VM) void {
@@ -547,6 +590,14 @@ pub const Value = union(enum) {
                 const new_list = try alloc.dupe(Value, self.list);
                 return .{ .list = new_list };
             },
+        }
+    }
+
+    pub fn free(self: Value, gpa: Allocator) void {
+        switch (self) {
+            .string => gpa.free(self.string),
+            .list => gpa.free(self.list),
+            else => {},
         }
     }
 
@@ -647,9 +698,15 @@ pub const Value = union(enum) {
             .bool => |value| return if (value) alloc.dupe(u8, "true") else alloc.dupe(u8, "false"),
             .block => return &.{},
             .list => |list| {
-                var strings = try alloc.alloc([]const u8, list.len);
-                for (list, 0..) |v, idx| {
-                    strings[idx] = try v.toString(alloc);
+                const strings = try alloc.alloc([]const u8, list.len);
+                defer alloc.free(strings);
+                for (list, strings) |v, *str| {
+                    str.* = try v.toString(alloc);
+                }
+                defer {
+                    for (strings) |str| {
+                        alloc.free(str);
+                    }
                 }
                 return std.mem.join(alloc, "\n", strings);
             },
@@ -681,14 +738,14 @@ pub const Value = union(enum) {
                 return digits;
             },
             .bool => |value| {
-                var list: []Value = &.{};
                 if (value) {
-                    list = try alloc.alloc(Value, 1);
+                    var list = try alloc.alloc(Value, 1);
                     list[0] = .{ .bool = true };
+                    return list;
                 } else {
-                    list = try alloc.alloc(Value, 0);
+                    const list = try alloc.alloc(Value, 0);
+                    return list;
                 }
-                return list;
             },
             .string => |string| {
                 var list = try alloc.alloc(Value, string.len);

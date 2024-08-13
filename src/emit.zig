@@ -23,7 +23,13 @@ pub const Code = struct {
 
     pub fn deinit(self: *Code) void {
         self.code.deinit(self.alloc);
+        for (self.blocks.items) |block| {
+            self.alloc.free(block);
+        }
         self.blocks.deinit(self.alloc);
+        for (self.constants.items) |cons| {
+            cons.free(self.alloc);
+        }
         self.constants.deinit(self.alloc);
     }
 
@@ -85,7 +91,6 @@ pub const Emitter = struct {
     }
 
     pub fn deinit(e: *Emitter) void {
-        e.ast.deinit(e.gpa);
         e.code.deinit();
         e.info.deinit();
         e.* = undefined;

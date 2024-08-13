@@ -3,7 +3,7 @@ const parser = @import("parser.zig");
 const Ast = @import("parser.zig").Ast;
 const analyzer = @import("analyzer.zig");
 const Emitter = @import("emit.zig").Emitter;
-const VM = @import("VM.zig").VM;
+const VM = @import("VM.zig");
 
 pub fn main() !void {
     var gpa_impl = std.heap.GeneralPurposeAllocator(.{}){};
@@ -34,6 +34,7 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, "-e", arg)) blk: {
         break :blk try gpa.dupeZ(u8, argsit.next() orelse return);
     } else return;
+    defer gpa.free(program);
 
     {
         // const ast = try parser.parseOld(gpa, program);
@@ -59,10 +60,11 @@ pub fn main() !void {
         const stdin = std.io.getStdIn();
         const input = stdin.reader();
         const exit_code = (try vm.execute(&output, input)) orelse 0;
+        _ = exit_code; // autofix
 
         try output.flush();
 
-        std.process.exit(exit_code);
+        // std.process.exit(exit_code);
     }
 }
 
