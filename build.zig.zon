@@ -1,0 +1,16 @@
+.{
+    .name = "zknight",
+    .version = "0.2.0",
+    .dependencies = .{
+        .@"knight-lang" = .{
+            .url = "git+https://github.com/knight-lang/knight-lang.git#5397ed96aefcff7a13b1b5cb84dbdcf033f982b4",
+            .hash = "1220e7865f7f3692913ea3bcb81aa43424752331852dc9cc806e3a7aeb5559cb1b30",
+        },
+    },
+    .paths = .{
+        "src",
+        "tests",
+        "build.zig",
+        "build.zig.zon",
+    },
+}
