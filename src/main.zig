@@ -38,48 +38,43 @@ pub fn main() !void {
     } else return;
     defer gpa.free(program);
 
-    {
-        var ast = try Ast.parse(gpa, program, .strict);
-        defer ast.deinit(gpa);
+    std.process.exit(try execute(program, gpa));
+}
 
-        if (debug) {
-            var out = std.ArrayList(u8).init(gpa);
-            defer out.deinit();
-            try ast.render(&out);
-            std.debug.print("{s}\n", .{out.items});
-        }
+fn execute(source: [:0]const u8, gpa: std.mem.Allocator) !u8 {
+    var ast = try Ast.parse(gpa, source, .strict);
+    defer ast.deinit(gpa);
 
-        const init = std.crypto.random.int(u64);
-        var xorisho = std.Random.DefaultPrng.init(init);
-        var vm = VM.init(gpa, xorisho.random());
-        defer vm.deinit();
-
-        var info = try analyzer.analyze(ast, gpa);
-        defer info.deinit(gpa);
-
-        var e = Emitter.init(ast, info);
-        defer e.deinit(gpa);
-
-        try e.emit(gpa, &vm);
-        // for (vm.code) |instr| {
-        //     std.log.debug("{}", .{instr});
-        // }
-        // for (vm.constants) |cons| {
-        //     std.debug.print("{}\n", .{cons});
-        // }
-
-        var stdout = std.io.getStdOut();
-        const raw_output = stdout.writer();
-        var output = std.io.bufferedWriter(raw_output);
-        const stdin = std.io.getStdIn();
-        const input = stdin.reader();
-        const exit_code = (try vm.execute(&output, input)) orelse 0;
-        _ = exit_code; // autofix
-
-        try output.flush();
-
-        // std.process.exit(exit_code);
+    if (debug) {
+        var out = std.ArrayList(u8).init(gpa);
+        defer out.deinit();
+        try ast.render(&out);
+        std.debug.print("{s}\n", .{out.items});
     }
+
+    const init = std.crypto.random.int(u64);
+    var xorisho = std.Random.DefaultPrng.init(init);
+    var vm = VM.init(gpa, xorisho.random());
+    defer vm.deinit();
+
+    var info = try analyzer.analyze(ast, gpa);
+    defer info.deinit(gpa);
+
+    var e = Emitter.init(ast, info);
+    defer e.deinit(gpa);
+
+    try e.emit(gpa, &vm);
+
+    var stdout = std.io.getStdOut();
+    const raw_output = stdout.writer();
+    var output = std.io.bufferedWriter(raw_output);
+    const stdin = std.io.getStdIn();
+    const input = stdin.reader();
+    const exit_code = (try vm.execute(&output, input)) orelse 0;
+
+    try output.flush();
+
+    return exit_code;
 }
 
 test {

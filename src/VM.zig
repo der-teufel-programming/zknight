@@ -365,7 +365,6 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             },
             .dump => {
                 const arg: Value = self.stack.getLastOrNull() orelse .{ .number = 0 };
-                defer arg.free(self.gpa);
 
                 const writer = output.writer();
                 try arg.dump(writer);
