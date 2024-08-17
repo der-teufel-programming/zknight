@@ -372,35 +372,8 @@ pub const Ast = struct {
                 return nodes[data.idx..][0..data.length];
             }
         };
-
-        // pub fn debugPrint(self: Node, ast: []const Node, indent: usize) void {
-        //     if (indent > 0) {
-        //         for (0..(indent - 1)) |_| {
-        //             std.debug.print("  ", .{});
-        //         }
-        //         if (indent > 1) {
-        //             std.debug.print("-- ", .{});
-        //         } else {
-        //             std.debug.print("   ", .{});
-        //         }
-        //     }
-        //     switch (self.tag) {
-        //         .string_literal,
-        //         .identifier,
-        //         .number_literal,
-        //         => std.debug.print("{s}\n", .{self.data.bytes}),
-        //         else => |tag| {
-        //             const char = tag.char().?;
-        //             const args = self.data.arguments;
-        //             std.debug.print("{c}\n", .{char});
-        //             for (args) |arg_idx| {
-        //                 const node = ast[arg_idx];
-        //                 node.debugPrint(ast, indent + 1);
-        //             }
-        //         },
-        //     }
-        // }
     };
+
     pub fn deinit(tree: *Ast, gpa: Allocator) void {
         tree.tokens.deinit(gpa);
         tree.nodes.deinit(gpa);
@@ -408,6 +381,75 @@ pub const Ast = struct {
         gpa.free(tree.string_data);
         gpa.free(tree.errors);
         tree.* = undefined;
+    }
+
+    pub fn render(tree: *Ast, buffer: *std.ArrayList(u8)) !void {
+        try tree.renderInner(0, buffer.writer());
+    }
+
+    fn renderInner(tree: *Ast, node_idx: Node.Index, out: std.ArrayList(u8).Writer) !void {
+        const node = tree.nodes.get(node_idx);
+        switch (node.tag) {
+            .string_literal => try out.print(
+                "'{s}'",
+                .{node.data.getBytes(tree.string_data)},
+            ),
+            .integer_literal,
+            .identifier,
+            => try out.print(
+                "{s}",
+                .{node.data.getBytes(tree.string_data)},
+            ),
+            .function_at,
+            .function_colon,
+            .function_bang,
+            .function_tilde,
+            .function_comma,
+            .function_r_bracket,
+            .function_l_bracket,
+            .function_plus,
+            .function_minus,
+            .function_star,
+            .function_slash,
+            .function_ampersand,
+            .function_percent,
+            .function_caret,
+            .function_less,
+            .function_greater,
+            .function_question_mark,
+            .function_pipe,
+            .function_semicolon,
+            .function_equal,
+            .function_T,
+            .function_F,
+            .function_N,
+            .function_P,
+            .function_R,
+            .function_A,
+            .function_B,
+            .function_C,
+            .function_D,
+            .function_L,
+            .function_O,
+            .function_Q,
+            .function_W,
+            .function_I,
+            .function_G,
+            .function_S,
+            => {
+                const char = node.tag.char() orelse return;
+                try out.print("{c}", .{char});
+                const arity = node.tag.arity().?;
+                if (arity > 0) {
+                    const args = node.data.getNodes(tree.node_data);
+                    for (args) |arg| {
+                        try out.writeAll(" ");
+                        try tree.renderInner(arg, out);
+                    }
+                }
+                try out.writeAll(" ");
+            },
+        }
     }
 
     const TokenList = std.MultiArrayList(Token);
@@ -523,165 +565,181 @@ const Parser = struct {
     }
 
     fn parseExpr(p: *Parser, node_idx: Ast.Node.Index, callstack: *std.ArrayListUnmanaged(Ast.Node.Index)) ParseError!void {
-        const token_tag = p.token_tags[p.tok_i];
-        // log.debug("token: {s}", .{@tagName(token_tag)});
         try callstack.append(p.gpa, node_idx);
         defer _ = callstack.pop();
-        switch (token_tag) {
-            .integer_literal => {
-                const data_start: u32 = @intCast(p.string_data.items.len);
-                const tok_loc = p.token_locs[p.tok_i];
-                const data_len: u32 = @intCast(tok_loc.end - tok_loc.start);
-                try p.string_data.appendSlice(p.gpa, tok_loc.slice(p.source) orelse return p.addInvalid());
-                p.nodes.set(node_idx, .{
-                    .tag = .integer_literal,
-                    .token_idx = p.tok_i,
-                    .data = .{
-                        .idx = data_start,
-                        .length = data_len,
-                    },
-                });
-                // log.debug(
-                //     "[{d}] integer {s}",
-                //     .{ callstack.items, p.string_data.items[data_start..][0..data_len] },
-                // );
-                p.tok_i += 1;
-            },
-            .string_literal => {
-                const data_start: u32 = @intCast(p.string_data.items.len);
-                var tok_loc = p.token_locs[p.tok_i];
-                const data_len: u32 = @intCast(tok_loc.end - tok_loc.start - 2);
-                tok_loc.start += 1;
-                tok_loc.end -= 1;
-                try p.string_data.appendSlice(p.gpa, tok_loc.slice(p.source) orelse return p.addInvalid());
-                p.nodes.set(node_idx, .{
-                    .tag = .string_literal,
-                    .token_idx = p.tok_i,
-                    .data = .{
-                        .idx = data_start,
-                        .length = data_len,
-                    },
-                });
-                // log.debug(
-                //     "[{d}] string `{s}`",
-                //     .{ callstack.items, p.string_data.items[data_start..][0..data_len] },
-                // );
-                p.tok_i += 1;
-            },
-            .identifier => {
-                p.nodes.set(node_idx, .{
-                    .tag = .identifier,
-                    .token_idx = p.tok_i,
-                    .data = .{ .idx = 0, .length = 0 },
-                });
-                // log.debug(
-                //     "[{d}] identifier `{s}`",
-                //     .{ callstack.items, p.slice(p.token_locs[p.tok_i]).? },
-                // );
-                p.tok_i += 1;
-            },
-            .symbol_function => {
-                const func_name = p.slice(p.token_locs[p.tok_i]).?;
-                const tag = Ast.Node.Tag.symbolFunction(func_name[0]).?;
-                const arity = tag.arity().?;
-                // log.debug(
-                //     "[{d}] func: {s} ({})",
-                //     .{ callstack.items, @tagName(tag), arity },
-                // );
-                if (arity > 0) {
-                    try p.nodes.ensureUnusedCapacity(p.gpa, arity);
-
-                    const data_start: u32 = @intCast(p.node_data.items.len);
-                    try p.node_data.ensureUnusedCapacity(p.gpa, arity);
-                    const first_node = p.nodes.len;
-                    for (0..arity) |_| {
-                        // log.debug("Adding {d}", .{p.nodes.len});
-                        p.node_data.appendAssumeCapacity(@intCast(p.nodes.len));
-                        p.nodes.appendAssumeCapacity(undefined);
-                    }
+        while (true) {
+            const token_tag = p.token_tags[p.tok_i];
+            // const token_loc = p.token_locs[p.tok_i];
+            // log.debug("token: {s} {}:{}", .{ @tagName(token_tag), token_loc.start, token_loc.end });
+            switch (token_tag) {
+                .integer_literal => {
+                    const data_start: u32 = @intCast(p.string_data.items.len);
+                    const tok_loc = p.token_locs[p.tok_i];
+                    const data_len: u32 = @intCast(tok_loc.end - tok_loc.start);
+                    try p.string_data.appendSlice(p.gpa, tok_loc.slice(p.source) orelse return p.addInvalid());
                     p.nodes.set(node_idx, .{
-                        .tag = tag,
+                        .tag = .integer_literal,
                         .token_idx = p.tok_i,
                         .data = .{
                             .idx = data_start,
-                            .length = arity,
+                            .length = data_len,
                         },
                     });
+                    // log.debug(
+                    //     "[{d}] integer {s}",
+                    //     .{ callstack.items, p.string_data.items[data_start..][0..data_len] },
+                    // );
                     p.tok_i += 1;
-                    for (0..arity) |i| {
-                        // log.debug("starting [{d}]", .{first_node + i});
-                        try p.parseExpr(@intCast(first_node + i), callstack);
-                    }
-                    // log.debug("finished [{d}] {s}", .{ callstack.items, @tagName(tag) });
-                } else {
+                    return;
+                },
+                .string_literal => {
+                    const data_start: u32 = @intCast(p.string_data.items.len);
+                    var tok_loc = p.token_locs[p.tok_i];
+                    const data_len: u32 = @intCast(tok_loc.end - tok_loc.start - 2);
+                    tok_loc.start += 1;
+                    tok_loc.end -= 1;
+                    try p.string_data.appendSlice(p.gpa, tok_loc.slice(p.source) orelse return p.addInvalid());
                     p.nodes.set(node_idx, .{
-                        .tag = tag,
-                        .token_idx = p.tok_i,
-                        .data = .{
-                            .idx = 0,
-                            .length = 0,
-                        },
-                    });
-                    p.tok_i += 1;
-                }
-            },
-            .word_function => {
-                const func_name = p.slice(p.token_locs[p.tok_i]).?;
-                const tag = Ast.Node.Tag.wordFunction(func_name[0]) orelse {
-                    try p.addBadFunctionName();
-                    return error.ParseError;
-                };
-                const arity = tag.arity().?;
-                // log.debug(
-                //     "[{d}] func: {s} ({d})",
-                //     .{ callstack.items, @tagName(tag), arity },
-                // );
-                if (arity > 0) {
-                    const node_start = p.nodes.len;
-                    try p.nodes.ensureUnusedCapacity(p.gpa, arity);
-
-                    const data_start: u32 = @intCast(p.node_data.items.len);
-                    try p.node_data.ensureUnusedCapacity(p.gpa, arity);
-                    for (0..arity) |i| {
-                        p.nodes.appendAssumeCapacity(undefined);
-                        p.node_data.appendAssumeCapacity(@intCast(node_start + i));
-                    }
-                    p.nodes.set(node_idx, .{
-                        .tag = tag,
+                        .tag = .string_literal,
                         .token_idx = p.tok_i,
                         .data = .{
                             .idx = data_start,
-                            .length = arity,
+                            .length = data_len,
                         },
                     });
+                    // log.debug(
+                    //     "[{d}] string `{s}`",
+                    //     .{ callstack.items, p.string_data.items[data_start..][0..data_len] },
+                    // );
                     p.tok_i += 1;
-                    for (p.node_data.items[node_start..]) |node| {
-                        // log.debug("starting [{d}]", .{node});
-                        try p.parseExpr(node, callstack);
-                    }
-                    // log.debug("finished [{d}] {s}", .{ callstack.items, @tagName(tag) });
-                } else {
+                    return;
+                },
+                .identifier => {
+                    const data_start: u32 = @intCast(p.string_data.items.len);
+                    var tok_loc = p.token_locs[p.tok_i];
+                    const data_len: u32 = @intCast(tok_loc.end - tok_loc.start);
+                    try p.string_data.appendSlice(p.gpa, tok_loc.slice(p.source) orelse return p.addInvalid());
                     p.nodes.set(node_idx, .{
-                        .tag = tag,
+                        .tag = .identifier,
                         .token_idx = p.tok_i,
                         .data = .{
-                            .idx = 0,
-                            .length = 0,
+                            .idx = data_start,
+                            .length = data_len,
                         },
                     });
+                    // log.debug(
+                    //     "[{d}] identifier `{s}`",
+                    //     .{ callstack.items, p.slice(p.token_locs[p.tok_i]).? },
+                    // );
                     p.tok_i += 1;
-                }
-            },
-            .l_paren => {
-                p.tok_i += 1;
-                return p.parseExpr(node_idx, callstack);
-            },
-            .r_paren => {
-                p.tok_i += 1;
-                return p.parseExpr(node_idx, callstack);
-            },
-            .eof => try p.addUnexpected(.eof),
-            .invalid => return p.addInvalid(),
+                    return;
+                },
+                .symbol_function => {
+                    const func_name = p.slice(p.token_locs[p.tok_i]).?;
+                    const tag = Ast.Node.Tag.symbolFunction(func_name[0]).?;
+                    const arity = tag.arity().?;
+                    // log.debug(
+                    //     "[{d}] func: {s} ({})",
+                    //     .{ callstack.items, @tagName(tag), arity },
+                    // );
+                    if (arity > 0) {
+                        try p.nodes.ensureUnusedCapacity(p.gpa, arity);
+
+                        const data_start: u32 = @intCast(p.node_data.items.len);
+                        try p.node_data.ensureUnusedCapacity(p.gpa, arity);
+                        const first_node = p.nodes.len;
+                        for (0..arity) |_| {
+                            // log.debug("Adding {d}", .{p.nodes.len});
+                            p.node_data.appendAssumeCapacity(@intCast(p.nodes.len));
+                            p.nodes.appendAssumeCapacity(undefined);
+                        }
+                        p.nodes.set(node_idx, .{
+                            .tag = tag,
+                            .token_idx = p.tok_i,
+                            .data = .{
+                                .idx = data_start,
+                                .length = arity,
+                            },
+                        });
+                        p.tok_i += 1;
+                        for (0..arity) |i| {
+                            // log.debug("starting [{d}]", .{first_node + i});
+                            try p.parseExpr(@intCast(first_node + i), callstack);
+                        }
+                        // log.debug("finished [{d}] {s}", .{ callstack.items, @tagName(tag) });
+                    } else {
+                        p.nodes.set(node_idx, .{
+                            .tag = tag,
+                            .token_idx = p.tok_i,
+                            .data = .{
+                                .idx = 0,
+                                .length = 0,
+                            },
+                        });
+                        p.tok_i += 1;
+                    }
+                    return;
+                },
+                .word_function => {
+                    const func_name = p.slice(p.token_locs[p.tok_i]).?;
+                    const tag = Ast.Node.Tag.wordFunction(func_name[0]) orelse {
+                        try p.addBadFunctionName();
+                        return error.ParseError;
+                    };
+                    const arity = tag.arity().?;
+                    // log.debug(
+                    //     "[{d}] func: {s} ({d})",
+                    //     .{ callstack.items, @tagName(tag), arity },
+                    // );
+                    if (arity > 0) {
+                        const node_start = p.nodes.len;
+                        try p.nodes.ensureUnusedCapacity(p.gpa, arity);
+
+                        const data_start: u32 = @intCast(p.node_data.items.len);
+                        try p.node_data.ensureUnusedCapacity(p.gpa, arity);
+                        const first_node = p.nodes.len;
+                        for (0..arity) |i| {
+                            p.node_data.appendAssumeCapacity(@intCast(node_start + i));
+                            p.nodes.appendAssumeCapacity(undefined);
+                        }
+                        p.nodes.set(node_idx, .{
+                            .tag = tag,
+                            .token_idx = p.tok_i,
+                            .data = .{
+                                .idx = data_start,
+                                .length = arity,
+                            },
+                        });
+                        p.tok_i += 1;
+                        for (0..arity) |i| {
+                            // log.debug("starting [{d}]", .{first_node + i});
+                            try p.parseExpr(@intCast(first_node + i), callstack);
+                        }
+                        // log.debug("finished [{d}] {s}", .{ callstack.items, @tagName(tag) });
+                    } else {
+                        p.nodes.set(node_idx, .{
+                            .tag = tag,
+                            .token_idx = p.tok_i,
+                            .data = .{
+                                .idx = 0,
+                                .length = 0,
+                            },
+                        });
+                        p.tok_i += 1;
+                    }
+                    return;
+                },
+                .l_paren => {
+                    // log.debug("skipping (", .{});
+                    p.tok_i += 1;
+                },
+                .r_paren => {
+                    // log.debug("skipping )", .{});
+                    p.tok_i += 1;
+                },
+                .eof => return p.addUnexpected(.eof),
+                .invalid => return p.addInvalid(),
+            }
         }
     }
 

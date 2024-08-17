@@ -3,20 +3,17 @@ const Ast = @import("parser.zig").Ast;
 const Node = Ast.Node;
 
 pub const Info = struct {
-    variables: std.StringHashMap(u32),
+    variables: std.StringHashMapUnmanaged(u32) = .{},
 
-    pub fn init(alloc: std.mem.Allocator) Info {
-        return .{ .variables = std.StringHashMap(u32).init(alloc) };
-    }
-
-    pub fn deinit(self: *Info) void {
-        self.variables.deinit();
+    pub fn deinit(self: *Info, gpa: std.mem.Allocator) void {
+        self.variables.deinit(gpa);
+        self.* = undefined;
     }
 };
 
-pub fn analyze(ast: Ast, alloc: std.mem.Allocator) !Info {
-    var info = Info.init(alloc);
-    errdefer info.deinit();
+pub fn analyze(ast: Ast, gpa: std.mem.Allocator) !Info {
+    var info: Info = .{};
+    errdefer info.deinit(gpa);
 
     var next_index: u32 = 0;
 
@@ -25,8 +22,8 @@ pub fn analyze(ast: Ast, alloc: std.mem.Allocator) !Info {
     for (tags, data) |tag, dat| {
         switch (tag) {
             .identifier => {
-                const name = ast.string_data[dat.idx..][0..dat.length];
-                const gop = try info.variables.getOrPut(name);
+                const name = dat.getBytes(ast.string_data);
+                const gop = try info.variables.getOrPut(gpa, name);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = next_index;
                     next_index += 1;

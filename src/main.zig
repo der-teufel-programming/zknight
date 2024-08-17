@@ -5,6 +5,8 @@ const analyzer = @import("analyzer.zig");
 const Emitter = @import("emit.zig").Emitter;
 const VM = @import("VM.zig");
 
+const debug = @import("build_options").debug;
+
 pub fn main() !void {
     var gpa_impl = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa_impl.deinit();
@@ -37,22 +39,34 @@ pub fn main() !void {
     defer gpa.free(program);
 
     {
-        // const ast = try parser.parseOld(gpa, program);
-        // defer gpa.free(ast);
         var ast = try Ast.parse(gpa, program, .strict);
         defer ast.deinit(gpa);
 
-        var info = try analyzer.analyze(ast, gpa);
-        defer info.deinit();
+        if (debug) {
+            var out = std.ArrayList(u8).init(gpa);
+            defer out.deinit();
+            try ast.render(&out);
+            std.debug.print("{s}\n", .{out.items});
+        }
+
         const init = std.crypto.random.int(u64);
         var xorisho = std.Random.DefaultPrng.init(init);
         var vm = VM.init(gpa, xorisho.random());
         defer vm.deinit();
 
-        var e = try Emitter.init(ast, gpa);
-        defer e.deinit();
+        var info = try analyzer.analyze(ast, gpa);
+        defer info.deinit(gpa);
 
-        try e.emit(&vm);
+        var e = Emitter.init(ast, info);
+        defer e.deinit(gpa);
+
+        try e.emit(gpa, &vm);
+        // for (vm.code) |instr| {
+        //     std.log.debug("{}", .{instr});
+        // }
+        // for (vm.constants) |cons| {
+        //     std.debug.print("{}\n", .{cons});
+        // }
 
         var stdout = std.io.getStdOut();
         const raw_output = stdout.writer();

@@ -9,7 +9,7 @@ pub const Token = struct {
         end: usize,
 
         pub fn slice(loc: Loc, source: [:0]const u8) ?[]const u8 {
-            if (loc.start == loc.end) return null;
+            if (loc.start > loc.end) return null;
             return source[loc.start..loc.end];
         }
     };
