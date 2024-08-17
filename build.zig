@@ -38,6 +38,18 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const test_exe = b.addExecutable(.{
+        .name = "zknight",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    var test_opts = b.addOptions();
+    test_opts.addOption(bool, "sanitize", true);
+    test_opts.addOption(bool, "debug", false);
+
+    test_exe.root_module.addOptions("build_options", opts);
+
     const test_step = b.step("test", "Run unit tests");
 
     const source_tests = b.addTest(.{
@@ -48,9 +60,9 @@ pub fn build(b: *std.Build) void {
     const run_source_tests = b.addRunArtifact(source_tests);
     test_step.dependOn(&run_source_tests.step);
 
-    tests.addTests(b, test_step, exe);
+    tests.addTests(b, test_step, test_exe);
     for (examples) |ex| {
-        const run_ex = b.addRunArtifact(exe);
+        const run_ex = b.addRunArtifact(test_exe);
         ex.addToRun(run_ex);
         test_step.dependOn(&run_ex.step);
     }
