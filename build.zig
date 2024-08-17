@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
     test_opts.addOption(bool, "sanitize", true);
     test_opts.addOption(bool, "debug", false);
 
-    test_exe.root_module.addOptions("build_options", opts);
+    test_exe.root_module.addOptions("build_options", test_opts);
 
     const test_step = b.step("test", "Run unit tests");
 
