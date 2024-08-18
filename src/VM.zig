@@ -522,15 +522,22 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 const idx: usize = @intCast(idx_arg.toNumber());
                 switch (arg) {
                     .list => |list| {
-                        const new_list_one = list[0..idx];
-                        const new_list_two = list[idx + len ..];
                         const new_list_mid = try new.toList(self.gpa);
                         defer self.gpa.free(new_list_mid);
-                        const new_list = try std.mem.concat(
-                            self.gpa,
+                        const new_len = new_list_mid.len;
+                        const new_list = try self.gpa.alloc(
                             Value,
-                            &.{ new_list_one, new_list_mid, new_list_two },
+                            list.len - len + new_len,
                         );
+                        for (new_list[0..idx], list[0..idx]) |*nv, v| {
+                            nv.* = try v.dupe(self.gpa);
+                        }
+                        for (new_list[idx..][0..new_len], new_list_mid) |*nv, v| {
+                            nv.* = try v.dupe(self.gpa);
+                        }
+                        for (new_list[idx + new_len ..], list[idx + len ..]) |*nv, v| {
+                            nv.* = try v.dupe(self.gpa);
+                        }
                         try self.push(.{ .list = new_list });
                     },
                     .string => |string| {
