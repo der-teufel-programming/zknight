@@ -44,6 +44,20 @@ fn push(self: *VM, value: Value) !void {
     try self.stack.append(self.gpa, value);
 }
 
+fn last(self: *VM, default: Value.Type) !*Value {
+    if (self.stack.items.len == 0) {
+        try self.push(switch (default) {
+            .number => .{ .number = 0 },
+            .string => try self.emptyString(),
+            .list => try self.emptyList(),
+            .bool => .{ .bool = false },
+            .block => unreachable,
+            .null => .null,
+        });
+    }
+    return &self.stack.items[self.stack.items.len - 1];
+}
+
 pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
     // const log = std.log.scoped(.execute);
     while (self.instr_idx < self.code.len) : (self.instr_idx += 1) {
@@ -98,23 +112,21 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(value.len());
             },
             .not => {
-                const value: Value = self.stack.popOrNull() orelse .{ .bool = false };
-                defer value.free(self.gpa);
-
+                var value: *Value = try self.last(.bool);
                 if (sanitize) {
-                    if (value == .block) return error.BlockNotAllowed;
+                    if (value.* == .block) return error.BlockNotAllowed;
                 }
 
-                try self.push(.{ .bool = !value.toBool() });
+                try value.mutate(.bool, self.gpa);
+                value.bool = !value.bool;
             },
             .negate => {
-                const value: Value = self.stack.popOrNull() orelse .{ .number = 0 };
-                defer value.free(self.gpa);
-
+                var value: *Value = try self.last(.bool);
                 if (sanitize) {
-                    if (value == .block) return error.BlockNotAllowed;
+                    if (value.* == .block) return error.BlockNotAllowed;
                 }
-                try self.push(.{ .number = -(value.toNumber()) });
+                try value.mutate(.number, self.gpa);
+                value.number = -value.number;
             },
             .ascii => {
                 const value: Value = self.stack.popOrNull() orelse try self.emptyString();
@@ -364,7 +376,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(.null);
             },
             .dump => {
-                const arg: Value = self.stack.getLastOrNull() orelse .{ .number = 0 };
+                const arg: Value = self.stack.getLastOrNull() orelse .null;
 
                 const writer = output.writer();
                 try arg.dump(writer);
@@ -479,8 +491,11 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 const idx: usize = @intCast(idx_arg.toNumber());
                 switch (arg) {
                     .list => |list| {
-                        const new_list = list[idx..][0..len];
-                        try self.push(.{ .list = try self.gpa.dupe(Value, new_list) });
+                        const new_list = try self.gpa.alloc(Value, len);
+                        for (new_list, list[idx..][0..len]) |*nv, v| {
+                            nv.* = try v.dupe(self.gpa);
+                        }
+                        try self.push(.{ .list = new_list });
                     },
                     .string => |string| {
                         const new_string = string[idx..][0..len];
@@ -624,6 +639,8 @@ pub const Value = union(enum) {
     /// index into VM.blocks
     block: u32,
     null: void,
+
+    pub const Type = std.meta.Tag(Value);
 
     pub fn dupe(self: Value, gpa: Allocator) !Value {
         return switch (self) {
@@ -890,6 +907,20 @@ pub const Value = union(enum) {
                     else => return false,
                 }
             },
+        }
+    }
+
+    pub fn mutate(self: *Value, new_type: Type, gpa: Allocator) !void {
+        if (self.* == new_type) return;
+        const old_self = self.*;
+        defer old_self.free(gpa);
+        switch (new_type) {
+            .number => self.* = .{ .number = self.toNumber() },
+            .string => self.* = .{ .string = try self.toString(gpa) },
+            .list => self.* = .{ .list = try self.toList(gpa) },
+            .bool => self.* = .{ .bool = self.toBool() },
+            .block => unreachable,
+            .null => self.* = .null,
         }
     }
 };
