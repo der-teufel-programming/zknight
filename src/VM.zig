@@ -196,8 +196,15 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     .list => |list| {
                         const list2 = try arg2.toList(self.gpa);
                         defer self.gpa.free(list2);
+                        const new_list = try self.gpa.alloc(Value, list.len + list2.len);
+                        for (new_list[0..list.len], list) |*nv, v| {
+                            nv.* = try v.dupe(self.gpa);
+                        }
+                        for (new_list[list.len..], list2) |*nv, v| {
+                            nv.* = try v.dupe(self.gpa);
+                        }
                         try self.push(
-                            .{ .list = try std.mem.concat(self.gpa, Value, &.{ list, list2 }) },
+                            .{ .list = new_list },
                         );
                     },
                     else => return error.BadAdd,
