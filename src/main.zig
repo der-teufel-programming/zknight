@@ -45,6 +45,13 @@ fn execute(source: [:0]const u8, gpa: std.mem.Allocator) !u8 {
     var ast = try Ast.parse(gpa, source, .strict);
     defer ast.deinit(gpa);
 
+    if (ast.errors.len > 0) {
+        for (ast.errors) |err| {
+            std.debug.print("{}\n", .{err});
+        }
+        return error.ParseError;
+    }
+
     if (debug) {
         var out = std.ArrayList(u8).init(gpa);
         defer out.deinit();
