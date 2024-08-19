@@ -424,7 +424,23 @@ const function = struct {
         },
         .{
             .name = "call",
-            .tests = &.{},
+            .tests = &.{
+                // should run something returned by `BLOCK`
+                .{ .code = "CALL BLOCK 12", .output = .{ .number = 12 } },
+                .{ .code = "CALL BLOCK \"12\"", .output = .{ .string = "12" } },
+                .{ .code = "CALL BLOCK TRUE", .output = .{ .bool = true } },
+                .{ .code = "CALL BLOCK FALSE", .output = .{ .bool = false } },
+                .{ .code = "CALL BLOCK NULL", .output = .null },
+                .{ .code = "CALL BLOCK @", .output = .{ .list = &.{} } },
+                .{
+                    .code = "; = foo BLOCK bar ; = bar \"twelve\" : CALL foo",
+                    .output = .{ .string = "twelve" },
+                },
+                .{
+                    .code = "; = foo BLOCK * x 5 ; = x 3 : CALL foo",
+                    .output = .{ .number = 15 },
+                },
+            },
         },
         .{
             .name = "head",
