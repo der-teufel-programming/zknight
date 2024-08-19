@@ -66,6 +66,11 @@ pub fn build(b: *std.Build) void {
         ex.addToRun(run_ex);
         test_step.dependOn(&run_ex.step);
     }
+
+    if (b.option(bool, "spec", "Test spec conformance") orelse false) {
+        tests.spec.addFunctions(b, test_exe, test_step);
+        tests.spec.addVariables(b, test_exe, test_step);
+    }
 }
 
 const Example = struct {

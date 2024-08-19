@@ -1,6 +1,8 @@
 const std = @import("std");
 const Build = std.Build;
 
+pub const spec = @import("spec/spec.zig");
+
 fn addTest(
     b: *Build,
     exe: *Build.Step.Compile,
