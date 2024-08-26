@@ -645,6 +645,31 @@ pub fn debugStackPrint(self: VM) void {
     }
 }
 
+pub const MemoryPool = struct {
+    numbers: std.AutoHashMapUnmanaged(Index, isize) = .{},
+    strings: std.AutoHashMapUnmanaged(Index, []const u8) = .{},
+    lists: std.AutoHashMapUnmanaged(Index, []const usize) = .{},
+    bools: std.AutoHashMapUnmanaged(Index, bool) = .{},
+    blocks: std.AutoHashMapUnmanaged(Index, u32) = .{},
+
+    pub const Index = usize;
+
+    pub fn getValue(
+        self: *MemoryPool,
+        tag: std.meta.Tag(Value),
+        idx: Index,
+    ) ?Value {
+        return switch (tag) {
+            .number => .{ .number = self.numbers.get(idx) orelse return null },
+            .string => .{ .string = self.strings.get(idx) orelse return null },
+            .list => .{ .list = self.lists.get(idx) orelse return null },
+            .bool => .{ .bool = self.bools.get(idx) orelse return null },
+            .block => .{ .block = self.blocks.get(idx) orelse return null },
+            .null => .null,
+        };
+    }
+};
+
 pub const Value = union(enum) {
     number: isize,
     string: []const u8,
