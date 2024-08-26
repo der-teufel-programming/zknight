@@ -13,11 +13,15 @@ pub fn build(b: *std.Build) void {
 
     const debug = b.option(bool, "debug", "Enable debug printing") orelse (optimize == .Debug);
 
+    const no_llvm = b.option(bool, "no-llvm", "Don't use LLVM to build zknight") orelse false;
+
     const exe = b.addExecutable(.{
         .name = "zknight",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .use_llvm = !no_llvm,
+        .use_lld = !no_llvm,
     });
 
     var opts = b.addOptions();
@@ -43,6 +47,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .use_llvm = !no_llvm,
+        .use_lld = !no_llvm,
     });
     var test_opts = b.addOptions();
     test_opts.addOption(bool, "sanitize", true);

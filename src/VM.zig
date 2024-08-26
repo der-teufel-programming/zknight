@@ -645,6 +645,39 @@ pub fn debugStackPrint(self: VM) void {
     }
 }
 
+pub const RefValue = struct {
+    ref_count: usize = 1,
+    value: *Value,
+
+    pub fn ref(self: *RefValue) void {
+        self.ref_count += 1;
+    }
+
+    pub fn deref(self: *RefValue) ?*Value {
+        self.ref_count -= 1;
+        if (self.ref_count == 0) {
+            return self.value;
+        } else {
+            return null;
+        }
+    }
+};
+
+pub const MemoryPool = struct {
+    gpa: Allocator,
+    pool: std.AutoHashMapUnmanaged(usize, RefValue),
+
+    pub fn init(gpa: Allocator) MemoryPool {
+        return .{ .gpa = gpa };
+    }
+
+    pub fn get(self: *MemoryPool, idx: usize) *Value {}
+
+    pub fn clone(self: *MemoryPool, idx: usize) usize {}
+
+    pub fn deinit(self: *MemoryPool) void {}
+};
+
 pub const Value = union(enum) {
     number: isize,
     string: []const u8,
