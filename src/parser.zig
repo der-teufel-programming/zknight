@@ -744,7 +744,7 @@ const Parser = struct {
     }
 
     fn addUnexpected(p: *Parser, tag: Token.Tag) !void {
-        @setCold(true);
+        @branchHint(.cold);
         try p.errors.append(p.gpa, .{
             .kind = .unexpected,
             .tok_i = p.tok_i,
@@ -753,7 +753,7 @@ const Parser = struct {
     }
 
     fn addBadFunctionName(p: *Parser) !void {
-        @setCold(true);
+        @branchHint(.cold);
         try p.errors.append(p.gpa, .{
             .kind = .bad_function_name,
             .tok_i = p.tok_i,
@@ -762,7 +762,7 @@ const Parser = struct {
     }
 
     fn addInvalid(p: *Parser) ParseError {
-        @setCold(true);
+        @branchHint(.cold);
         try p.errors.append(p.gpa, .{
             .kind = .invalid,
             .tok_i = p.tok_i,
