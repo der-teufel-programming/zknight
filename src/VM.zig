@@ -72,10 +72,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .null => try self.push(.null),
             .empty_list => try self.push(try self.emptyList()),
             .call => {
-                const block_idx = self.stack.popOrNull() orelse {
-                    if (sanitize) return 250;
-                    continue;
-                };
+                const block_idx = self.stack.pop();
                 defer block_idx.free(self.gpa);
                 if (sanitize) {
                     if (block_idx != .block) return 255;
@@ -92,7 +89,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .quit => {
-                const value: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const value: Value = self.stack.pop();
                 defer value.free(self.gpa);
 
                 if (sanitize) {
@@ -102,7 +99,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 return @intCast(value.toNumber());
             },
             .length => {
-                const value: Value = self.stack.popOrNull() orelse try self.emptyList();
+                const value: Value = self.stack.pop();
                 defer value.free(self.gpa);
 
                 if (sanitize) {
@@ -129,7 +126,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 value.number = -value.number;
             },
             .ascii => {
-                const value: Value = self.stack.popOrNull() orelse try self.emptyString();
+                const value: Value = self.stack.pop();
                 defer value.free(self.gpa);
 
                 switch (value) {
@@ -143,11 +140,11 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .box => {
-                const value: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const value: Value = self.stack.pop();
                 try self.push(.{ .list = try self.gpa.dupe(Value, &.{value}) });
             },
             .head => {
-                const value: Value = self.stack.popOrNull() orelse try self.emptyString();
+                const value: Value = self.stack.pop();
                 defer value.free(self.gpa);
 
                 var head: Value = undefined;
@@ -159,7 +156,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(head);
             },
             .tail => {
-                const value: Value = self.stack.popOrNull() orelse try self.emptyString();
+                const value: Value = self.stack.pop();
                 defer value.free(self.gpa);
 
                 switch (value) {
@@ -175,9 +172,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .add => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -211,9 +208,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .sub => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -225,9 +222,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(.{ .number = arg1.toNumber() - arg2.toNumber() });
             },
             .mult => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -258,9 +255,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .mod => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -278,9 +275,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(result);
             },
             .div => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -295,9 +292,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(result);
             },
             .exp => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -336,14 +333,14 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     else => return error.BadExp,
                 }
             },
-            .drop => if (self.stack.popOrNull()) |val| val.free(self.gpa),
+            .drop => self.stack.pop().free(self.gpa),
             .dupe => {
-                const value: Value = self.stack.getLastOrNull() orelse .{ .number = 0 };
+                const value: Value = self.stack.getLast();
                 try self.push(try value.dupe(self.gpa));
             },
             .jump => |jump_idx| self.instr_idx = jump_idx,
             .cond => |cond_idx| {
-                const condition: Value = self.stack.popOrNull() orelse .{ .bool = false };
+                const condition: Value = self.stack.pop();
                 defer condition.free(self.gpa);
 
                 if (sanitize) {
@@ -361,7 +358,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
             .block => |blk_idx| try self.push(.{ .block = blk_idx }),
             .constant => |const_idx| try self.push(try self.constants[const_idx].dupe(self.gpa)),
             .output => {
-                const arg: Value = self.stack.popOrNull() orelse try self.emptyString();
+                const arg: Value = self.stack.pop();
                 defer arg.free(self.gpa);
 
                 if (sanitize) {
@@ -383,16 +380,16 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(.null);
             },
             .dump => {
-                const arg: Value = self.stack.getLastOrNull() orelse .null;
+                const arg: Value = self.stack.getLast();
 
                 const writer = output.writer();
                 try arg.dump(writer);
                 try output.flush();
             },
             .less => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -403,9 +400,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(.{ .bool = (try arg1.order(arg2, self.gpa)) == .lt });
             },
             .greater => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -416,9 +413,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(.{ .bool = (try arg1.order(arg2, self.gpa)) == .gt });
             },
             .equal => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
                 defer arg2.free(self.gpa);
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
                 defer arg1.free(self.gpa);
 
                 if (sanitize) {
@@ -428,8 +425,8 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(.{ .bool = arg1.equals(arg2) });
             },
             .andthen => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg1: Value = self.stack.pop();
+                const arg2: Value = self.stack.pop();
 
                 if (sanitize) {
                     if (arg1 == .block or arg2 == .block) return 255;
@@ -444,8 +441,8 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .orthen => {
-                const arg2: Value = self.stack.popOrNull() orelse .{ .number = 0 };
-                const arg1: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const arg2: Value = self.stack.pop();
+                const arg1: Value = self.stack.pop();
 
                 if (sanitize) {
                     if (arg1 == .block or arg2 == .block) return 255;
@@ -483,11 +480,11 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 try self.push(.{ .number = self.rand.intRangeAtMost(isize, 0, std.math.maxInt(isize)) });
             },
             .get => {
-                const len_arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const len_arg: Value = self.stack.pop();
                 defer len_arg.free(self.gpa);
-                const idx_arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const idx_arg: Value = self.stack.pop();
                 defer idx_arg.free(self.gpa);
-                const arg: Value = self.stack.popOrNull() orelse try self.emptyList();
+                const arg: Value = self.stack.pop();
                 defer arg.free(self.gpa);
 
                 if (sanitize) {
@@ -512,13 +509,13 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .set => {
-                const new: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const new: Value = self.stack.pop();
                 defer new.free(self.gpa);
-                const len_arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const len_arg: Value = self.stack.pop();
                 defer len_arg.free(self.gpa);
-                const idx_arg: Value = self.stack.popOrNull() orelse .{ .number = 0 };
+                const idx_arg: Value = self.stack.pop();
                 defer idx_arg.free(self.gpa);
-                const arg: Value = self.stack.popOrNull() orelse try self.emptyList();
+                const arg: Value = self.stack.pop();
                 defer arg.free(self.gpa);
 
                 if (sanitize) {
