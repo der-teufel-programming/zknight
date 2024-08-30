@@ -65,7 +65,6 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
         // log.debug("[{}]: {}", .{ self.instr_idx, instr });
         switch (instr) {
             .nop => {},
-            .invalid => return 255,
             .true,
             .false,
             => try self.push(.{ .bool = (instr == .true) }),
@@ -971,7 +970,6 @@ pub const Instr = union(enum) {
     drop,
     dupe,
     nop,
-    invalid,
     /// index to jump to
     jump: usize,
     /// index to jump to on falsy
