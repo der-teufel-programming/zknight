@@ -243,10 +243,6 @@ pub const Emitter = struct {
         if (func.tag == .function_B) {
             try e.emitBlock(gpa, arg);
         } else {
-            if (func.tag == .function_O and e.ast.nodes.get(arg).tag == .identifier) {
-                try e.code.append(gpa, .invalid);
-                return;
-            }
             try e.emitInner(gpa, arg);
 
             switch (func.tag) {
