@@ -671,11 +671,17 @@ pub const MemoryPool = struct {
         return .{ .gpa = gpa };
     }
 
-    pub fn get(self: *MemoryPool, idx: usize) *Value {}
+    pub fn get(self: *MemoryPool, idx: usize) *Value {
+        return self.pool.get(idx).?.value;
+    }
 
-    pub fn clone(self: *MemoryPool, idx: usize) usize {}
+    pub fn clone(self: *MemoryPool, idx: usize) void {
+        self.pool.getPtr(idx).?.ref();
+    }
 
-    pub fn deinit(self: *MemoryPool) void {}
+    pub fn deinit(self: *MemoryPool) void {
+        _ = self;
+    }
 };
 
 pub const Value = union(enum) {
