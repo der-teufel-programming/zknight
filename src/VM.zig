@@ -665,14 +665,19 @@ pub const RefValue = struct {
 
 pub const MemoryPool = struct {
     gpa: Allocator,
-    pool: std.AutoHashMapUnmanaged(usize, RefValue),
+    pool: std.AutoHashMapUnmanaged(usize, RefValue) = .empty,
 
     pub fn init(gpa: Allocator) MemoryPool {
         return .{ .gpa = gpa };
     }
 
-    pub fn get(self: *MemoryPool, idx: usize) *Value {
-        return self.pool.get(idx).?.value;
+    pub fn getOrPut(self: *MemoryPool, idx: usize) *Value {
+        const gop = try self.pool.getOrPut(self.gpa, idx);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{ .value = try self.gpa.create(Value) };
+            gop.value_ptr.value = .null;
+        }
+        return gop.value_ptr.value;
     }
 
     pub fn clone(self: *MemoryPool, idx: usize) void {
@@ -680,7 +685,8 @@ pub const MemoryPool = struct {
     }
 
     pub fn deinit(self: *MemoryPool) void {
-        _ = self;
+        self.pool.deinit(self.gpa);
+        self.* = undefined;
     }
 };
 
