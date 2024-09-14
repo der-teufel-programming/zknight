@@ -383,23 +383,10 @@ pub const Ast = struct {
         tree.* = undefined;
     }
 
-    pub fn render(tree: *Ast, buffer: *std.ArrayList(u8)) !void {
-        try tree.renderInner(0, buffer.writer());
-    }
-
-    fn renderInner(tree: *Ast, node_idx: Node.Index, out: std.ArrayList(u8).Writer) !void {
+    fn depth(tree: *Ast, node_idx: Node.Index) usize {
         const node = tree.nodes.get(node_idx);
-        switch (node.tag) {
-            .string_literal => try out.print(
-                "'{s}'",
-                .{node.data.getBytes(tree.string_data)},
-            ),
-            .integer_literal,
-            .identifier,
-            => try out.print(
-                "{s}",
-                .{node.data.getBytes(tree.string_data)},
-            ),
+        return switch (node.tag) {
+            .string_literal, .integer_literal, .identifier => 1,
             .function_at,
             .function_colon,
             .function_bang,
@@ -418,8 +405,6 @@ pub const Ast = struct {
             .function_greater,
             .function_question_mark,
             .function_pipe,
-            .function_semicolon,
-            .function_equal,
             .function_T,
             .function_F,
             .function_N,
@@ -436,18 +421,145 @@ pub const Ast = struct {
             .function_I,
             .function_G,
             .function_S,
+            .function_equal,
+            .function_semicolon,
+            => blk: {
+                const arity = node.tag.arity().?;
+                var maximum: usize = 0;
+                if (arity > 0) {
+                    const args = node.data.getNodes(tree.node_data);
+                    for (args) |arg| {
+                        maximum = @max(maximum, tree.depth(arg));
+                    }
+                }
+                break :blk 1 + maximum;
+            },
+        };
+    }
+
+    pub fn render(tree: *Ast, buffer: *std.ArrayList(u8)) !void {
+        try tree.renderInner(0, buffer.writer(), 0, true, false);
+    }
+
+    fn renderInner(
+        tree: *Ast,
+        node_idx: Node.Index,
+        out: std.ArrayList(u8).Writer,
+        indent: usize,
+        first_arg: bool,
+        force_indent: bool,
+    ) !void {
+        const d = tree.depth(node_idx);
+        const do_indent = (!first_arg and d > 1) or force_indent;
+        if (do_indent) {
+            try out.writeAll("\n");
+            for (0..indent) |_| try out.writeAll("  ");
+        }
+        const node = tree.nodes.get(node_idx);
+        switch (node.tag) {
+            .string_literal => {
+                var singles = false;
+                const string = node.data.getBytes(tree.string_data);
+                for (string) |c| {
+                    if (c == '\'') {
+                        singles = true;
+                        break;
+                    }
+                }
+                if (!do_indent and indent > 0) {
+                    try out.writeAll(" ");
+                }
+                if (singles) {
+                    try out.print(
+                        "\"{s}\"",
+                        .{node.data.getBytes(tree.string_data)},
+                    );
+                } else {
+                    try out.print(
+                        "'{s}'",
+                        .{node.data.getBytes(tree.string_data)},
+                    );
+                }
+            },
+            .integer_literal,
+            .identifier,
+            => {
+                if (!do_indent and indent > 0) {
+                    try out.writeAll(" ");
+                }
+                try out.print(
+                    "{s}",
+                    .{node.data.getBytes(tree.string_data)},
+                );
+            },
+            .function_at,
+            .function_colon,
+            .function_bang,
+            .function_tilde,
+            .function_comma,
+            .function_r_bracket,
+            .function_l_bracket,
+            .function_plus,
+            .function_minus,
+            .function_star,
+            .function_slash,
+            .function_ampersand,
+            .function_percent,
+            .function_caret,
+            .function_less,
+            .function_greater,
+            .function_question_mark,
+            .function_pipe,
+            .function_T,
+            .function_F,
+            .function_N,
+            .function_P,
+            .function_R,
+            .function_A,
+            .function_C,
+            .function_D,
+            .function_L,
+            .function_O,
+            .function_Q,
+            .function_W,
+            .function_G,
+            .function_S,
+            .function_equal,
+            .function_semicolon,
             => {
                 const char = node.tag.char() orelse return;
+                if (!do_indent and indent > 0) {
+                    try out.writeAll(" ");
+                }
                 try out.print("{c}", .{char});
                 const arity = node.tag.arity().?;
                 if (arity > 0) {
                     const args = node.data.getNodes(tree.node_data);
-                    for (args) |arg| {
-                        try out.writeAll(" ");
-                        try tree.renderInner(arg, out);
+                    for (args, 0..) |arg, idx| {
+                        try tree.renderInner(arg, out, indent + 1, idx == 0, false);
                     }
                 }
-                try out.writeAll(" ");
+            },
+            .function_I => {
+                if (!do_indent and indent > 0) {
+                    try out.writeAll(" ");
+                }
+                try out.writeAll("I");
+                const args = node.data.getNodes(tree.node_data);
+                try tree.renderInner(args[0], out, indent, true, false);
+                for (args[1..]) |arg| {
+                    try tree.renderInner(arg, out, indent + 1, false, true);
+                }
+            },
+            .function_B => {
+                try out.writeAll("B (");
+                const args = node.data.getNodes(tree.node_data);
+                try tree.renderInner(args[0], out, indent + 2, false, false);
+                if (do_indent) {
+                    try out.writeAll("\n");
+                    for (0..indent) |_| try out.writeAll("  ");
+                }
+                try out.writeAll(")");
             },
         }
     }
