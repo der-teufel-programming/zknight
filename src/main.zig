@@ -38,11 +38,15 @@ pub fn main() !void {
     } else return;
     defer gpa.free(program);
 
-    std.process.exit(try execute(program, gpa));
-}
+    var debug_only = false;
 
-fn execute(source: [:0]const u8, gpa: std.mem.Allocator) !u8 {
-    var ast = try Ast.parse(gpa, source, .strict);
+    while (argsit.next()) |flag| {
+        if (std.mem.eql(u8, "--debug-only", flag)) {
+            debug_only = true;
+        }
+    }
+
+    var ast = try Ast.parse(gpa, program, .strict);
     defer ast.deinit(gpa);
 
     if (ast.errors.len > 0) {
@@ -71,7 +75,12 @@ fn execute(source: [:0]const u8, gpa: std.mem.Allocator) !u8 {
     defer e.deinit(gpa);
 
     try e.emit(gpa, &vm);
+    if (debug_only) return;
 
+    std.process.exit(try execute(&vm));
+}
+
+fn execute(vm: *VM) !u8 {
     var stdout = std.io.getStdOut();
     const raw_output = stdout.writer();
     var output = std.io.bufferedWriter(raw_output);
