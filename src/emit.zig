@@ -24,11 +24,21 @@ pub const Code = struct {
     }
 
     pub fn loadInto(self: *Code, gpa: Allocator, vm: *VM) !void {
-        vm.blocks = try self.blocks.toOwnedSlice(gpa);
+        // vm.blocks = try self.blocks.toOwnedSlice(gpa);
+        const blocks = try gpa.alloc([]const VM.Instr, self.blocks.items.len);
+        for (0..self.blocks.items.len) |idx| {
+            blocks[idx] = try gpa.dupe(VM.Instr, self.blocks.items[idx]);
+        }
+        vm.blocks = blocks;
         vm.code = try self.code.toOwnedSlice(gpa);
-        vm.variables = try gpa.alloc(VM.Value, self.variable_count);
-        @memset(vm.variables, .null);
-        vm.constants = try self.constants.toOwnedSlice(gpa);
+        vm.variables = try gpa.alloc(usize, self.variable_count);
+        @memset(vm.variables, @intFromEnum(VM.MemoryPool.Values.null));
+        vm.constants = try gpa.alloc(usize, self.constants.items.len);
+        for (self.constants.items) |value| {
+            const idx = vm.pool.pool.size;
+            const ptr = try vm.pool.getOrPut(idx);
+            ptr.* = value;
+        }
     }
 
     pub fn append(

@@ -61,7 +61,7 @@ fn execute(source: [:0]const u8, gpa: std.mem.Allocator) !u8 {
 
     const init = std.crypto.random.int(u64);
     var xorisho = std.Random.DefaultPrng.init(init);
-    var vm = VM.init(gpa, xorisho.random());
+    var vm = try VM.init(gpa, xorisho.random());
     defer vm.deinit();
 
     var info = try analyzer.analyze(ast, gpa);
@@ -72,16 +72,54 @@ fn execute(source: [:0]const u8, gpa: std.mem.Allocator) !u8 {
 
     try e.emit(gpa, &vm);
 
-    var stdout = std.io.getStdOut();
-    const raw_output = stdout.writer();
-    var output = std.io.bufferedWriter(raw_output);
-    const stdin = std.io.getStdIn();
-    const input = stdin.reader();
-    const exit_code = (try vm.execute(&output, input)) orelse 0;
+    var counts: std.AutoArrayHashMapUnmanaged(u16, usize) = .empty;
+    defer counts.deinit(gpa);
 
-    try output.flush();
+    for (vm.code) |i| {
+        const gop = try counts.getOrPut(gpa, @intFromEnum(i));
+        if (!gop.found_existing) {
+            // std.debug.print("{any}\n", .{i});
+            // std.debug.print("{s}\n", .{@tagName(@as(InstrKind, i))});
+            gop.value_ptr.* = 0;
+        }
+        gop.value_ptr.* += 1;
+    }
+    for (vm.blocks) |blk| {
+        for (blk) |i| {
+            const gop = try counts.getOrPut(gpa, @intFromEnum(i));
+            if (!gop.found_existing) {
+                // std.debug.print("{any}\n", .{i});
+                // std.debug.print("{s}\n", .{@tagName(@as(InstrKind, i))});
+                gop.value_ptr.* = 0;
+            }
+            gop.value_ptr.* += 1;
+        }
+    }
 
-    return exit_code;
+    {
+        var it = counts.iterator();
+        while (it.next()) |entry| {
+            std.debug.print("{x}: {}\n", .{
+                entry.key_ptr.*,
+                entry.value_ptr.*,
+            });
+            const en: @typeInfo(VM.Instr).@"union".tag_type.? = @enumFromInt(entry.key_ptr.*);
+            _ = en; // autofix
+        }
+    }
+
+    return 0;
+
+    // var stdout = std.io.getStdOut();
+    // const raw_output = stdout.writer();
+    // var output = std.io.bufferedWriter(raw_output);
+    // const stdin = std.io.getStdIn();
+    // const input = stdin.reader();
+    // const exit_code = (try vm.execute(&output, input)) orelse 0;
+
+    // try output.flush();
+
+    // return exit_code;
 }
 
 test {

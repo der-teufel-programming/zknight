@@ -1,30 +1,25 @@
 const VM = @This();
 
-constants: []const Value = &.{},
-variables: []Value = &.{},
+constants: []const usize = &.{},
+variables: []usize = &.{},
 blocks: []const []const Instr = &.{},
 code: []const Instr = &.{},
-stack: std.ArrayListUnmanaged(Value) = .{},
+stack: std.ArrayListUnmanaged(usize) = .{},
 rand: std.Random,
 gpa: Allocator,
 instr_idx: usize = 0,
+pool: MemoryPool,
 
-pub fn init(gpa: Allocator, r: std.Random) VM {
+pub fn init(gpa: Allocator, r: std.Random) !VM {
     return .{
         .gpa = gpa,
         .rand = r,
+        .pool = try MemoryPool.init(gpa),
     };
 }
 
 pub fn deinit(self: *VM) void {
-    for (self.constants) |c| {
-        c.free(self.gpa);
-    }
     self.gpa.free(self.constants);
-
-    for (self.variables) |v| {
-        v.free(self.gpa);
-    }
     self.gpa.free(self.variables);
 
     for (self.blocks) |blk| {
@@ -32,30 +27,28 @@ pub fn deinit(self: *VM) void {
     }
     self.gpa.free(self.blocks);
 
-    for (self.stack.items) |v| {
-        v.free(self.gpa);
-    }
     self.stack.deinit(self.gpa);
+    self.pool.deinit();
 
     self.gpa.free(self.code);
 }
 
-fn push(self: *VM, value: Value) !void {
-    try self.stack.append(self.gpa, value);
+fn push(self: *VM, value_idx: usize) !void {
+    try self.stack.append(self.gpa, value_idx);
 }
 
-fn last(self: *VM, default: Value.Type) !*Value {
+fn last(self: *VM, default: Value.Type) !usize {
     if (self.stack.items.len == 0) {
-        try self.push(switch (default) {
-            .number => .{ .number = 0 },
-            .string => try self.emptyString(),
-            .list => try self.emptyList(),
-            .bool => .{ .bool = false },
+        try self.push(@intFromEnum(switch (default) {
+            .number => MemoryPool.number_zero,
+            .string => MemoryPool.string_empty,
+            .list => MemoryPool.list_empty,
+            .bool => MemoryPool.bool_false,
             .block => unreachable,
-            .null => .null,
-        });
+            .null => MemoryPool.null,
+        }));
     }
-    return &self.stack.items[self.stack.items.len - 1];
+    return self.stack.getLast();
 }
 
 pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
@@ -65,22 +58,22 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
         // log.debug("[{}]: {}", .{ self.instr_idx, instr });
         switch (instr) {
             .nop => {},
-            .invalid => return 255,
-            .true,
-            .false,
-            => try self.push(.{ .bool = (instr == .true) }),
-            .null => try self.push(.null),
-            .empty_list => try self.push(try self.emptyList()),
+            .invalid => return error.InvalidInstruction,
+            .true => try self.push(@intFromEnum(MemoryPool.Values.bool_true)),
+            .false => try self.push(@intFromEnum(MemoryPool.Values.bool_false)),
+            .null => try self.push(@intFromEnum(MemoryPool.Values.null)),
+            .empty_list => try self.push(@intFromEnum(MemoryPool.Values.list_empty)),
             .call => {
-                const block_idx = self.stack.popOrNull() orelse {
-                    if (sanitize) return 250;
-                    continue;
-                };
-                defer block_idx.free(self.gpa);
+                const block_idx = self.stack.pop();
+
                 if (sanitize) {
-                    if (block_idx != .block) return 255;
+                    if (self.pool.getType(block_idx) != .block) return error.BlockExpected;
                 }
-                var block = self.blocks[block_idx.block];
+
+                const block_val = self.pool.getOrPut(block_idx) catch unreachable;
+
+                var block = self.blocks[block_val.block];
+
                 const index = self.instr_idx;
                 std.mem.swap([]const Instr, &self.code, &block);
                 self.instr_idx = 0;
@@ -92,21 +85,20 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .quit => {
-                const value: Value = self.stack.popOrNull() orelse .{ .number = 0 };
-                defer value.free(self.gpa);
+                const value_idx = self.stack.pop();
 
                 if (sanitize) {
-                    if (value == .block) return error.BlockNotAllowed;
+                    if (self.pool.getType(value_idx) == .block) return error.BlockNotAllowed;
                 }
 
-                return @intCast(value.toNumber());
+                return @intCast(try self.pool.toNumber(value_idx));
             },
             .length => {
-                const value: Value = self.stack.popOrNull() orelse try self.emptyList();
-                defer value.free(self.gpa);
+                const value = self.stack.pop();
+                defer self.pool.deref(value);
 
                 if (sanitize) {
-                    if (value == .block) return error.BlockNotAllowed;
+                    if (self.pool.getType(value) == .block) return error.BlockNotAllowed;
                 }
 
                 try self.push(value.len());
@@ -117,7 +109,7 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     if (value.* == .block) return error.BlockNotAllowed;
                 }
 
-                try value.mutate(.bool, self.gpa);
+                try value.mutate(.bool, &self.pool, self.gpa);
                 value.bool = !value.bool;
             },
             .negate => {
@@ -143,12 +135,12 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                 }
             },
             .box => {
-                const value: Value = self.stack.popOrNull() orelse .{ .number = 0 };
-                try self.push(.{ .list = try self.gpa.dupe(Value, &.{value}) });
+                const value_idx = self.stack.pop();
+                try self.push(.{ .list = try self.gpa.dupe(usize, &.{value_idx}) });
             },
             .head => {
-                const value: Value = self.stack.popOrNull() orelse try self.emptyString();
-                defer value.free(self.gpa);
+                const value = self.stack.pop();
+                try self.pool.deref(value);
 
                 var head: Value = undefined;
                 switch (value) {
@@ -562,21 +554,9 @@ pub fn execute(self: *VM, output: anytype, input: anytype) !?u8 {
                     else => return error.BadSet,
                 }
             },
-            // else => {
-            //     std.log.debug("Implement {s} in execute", .{@tagName(instr)});
-            //     return 255;
-            // },
         }
     }
     return null;
-}
-
-inline fn emptyString(self: *VM) !Value {
-    return .{ .string = try self.gpa.dupe(u8, "") };
-}
-
-inline fn emptyList(self: *VM) !Value {
-    return .{ .list = try self.gpa.dupe(Value, &.{}) };
 }
 
 pub fn debugPrint(self: VM) void {
@@ -666,22 +646,109 @@ pub const RefValue = struct {
 pub const MemoryPool = struct {
     gpa: Allocator,
     pool: std.AutoHashMapUnmanaged(usize, RefValue) = .empty,
+    numbers: std.AutoHashMapUnmanaged(usize, usize) = .empty,
 
-    pub fn init(gpa: Allocator) MemoryPool {
-        return .{ .gpa = gpa };
+    pub const Values = enum(usize) {
+        bool_true = 0,
+        bool_false = 1,
+        list_empty = 2,
+        string_empty = 3,
+        number_zero = 4,
+        number_one = 5,
+        null = 6,
+    };
+
+    pub fn init(gpa: Allocator) !MemoryPool {
+        var pool: MemoryPool = .{ .gpa = gpa };
+        {
+            const v = try pool.getOrPut(@intFromEnum(Values.bool_true));
+            v.* = .{ .bool = true };
+            const v_2 = try pool.getOrPut(@intFromEnum(Values.number_one));
+            v_2.* = .{ .number = 1 };
+            try pool.numbers.put(
+                pool.gpa,
+                @intFromEnum(Values.bool_true),
+                @intFromEnum(Values.number_one),
+            );
+        }
+        {
+            const v = try pool.getOrPut(@intFromEnum(Values.bool_false));
+            v.* = .{ .bool = false };
+            try pool.numbers.put(
+                pool.gpa,
+                @intFromEnum(Values.bool_false),
+                @intFromEnum(Values.number_zero),
+            );
+        }
+        {
+            const v = try pool.getOrPut(@intFromEnum(Values.list_empty));
+            v.* = .{ .list = try gpa.dupe(usize, &.{}) };
+            try pool.numbers.put(
+                pool.gpa,
+                @intFromEnum(Values.list_empty),
+                @intFromEnum(Values.number_zero),
+            );
+        }
+        {
+            const v = try pool.getOrPut(@intFromEnum(Values.string_empty));
+            v.* = .{ .string = try gpa.dupe(u8, "") };
+            try pool.numbers.put(
+                pool.gpa,
+                @intFromEnum(Values.string_empty),
+                @intFromEnum(Values.number_zero),
+            );
+        }
+        {
+            const v = try pool.getOrPut(@intFromEnum(Values.number_zero));
+            v.* = .{ .number = 0 };
+            try pool.numbers.put(
+                pool.gpa,
+                @intFromEnum(Values.number_zero),
+                @intFromEnum(Values.number_zero),
+            );
+        }
+        {
+            _ = try pool.getOrPut(@intFromEnum(Values.null));
+            try pool.numbers.put(
+                pool.gpa,
+                @intFromEnum(Values.null),
+                @intFromEnum(Values.number_zero),
+            );
+        }
+        return pool;
     }
 
-    pub fn getOrPut(self: *MemoryPool, idx: usize) *Value {
+    pub fn getOrPut(self: *MemoryPool, idx: usize) !*Value {
         const gop = try self.pool.getOrPut(self.gpa, idx);
         if (!gop.found_existing) {
             gop.value_ptr.* = .{ .value = try self.gpa.create(Value) };
-            gop.value_ptr.value = .null;
+            gop.value_ptr.value.* = .null;
         }
         return gop.value_ptr.value;
     }
 
+    pub fn getType(self: *MemoryPool, idx: usize) Value.Type {
+        const v = self.pool.get(idx).?;
+        return v.value.*;
+    }
+
+    pub fn toNumber(self: *MemoryPool, idx: usize) !usize {
+        if (self.numbers.get(idx)) |n_idx| return n_idx;
+        const n_idx = self.pool.count();
+        const v = try self.getOrPut(n_idx);
+        v.* = .{ .number = self.pool.get(idx).?.value.toNumber() };
+        try self.numbers.put(self.gpa, idx, n_idx);
+        return n_idx;
+    }
+
     pub fn clone(self: *MemoryPool, idx: usize) void {
         self.pool.getPtr(idx).?.ref();
+    }
+
+    pub fn deref(self: *MemoryPool, idx: usize) void {
+        if (self.pool.getPtr(idx).?.deref()) |val| {
+            val.free(self.gpa);
+        }
     }
 
     pub fn deinit(self: *MemoryPool) void {
@@ -693,7 +760,7 @@ pub const MemoryPool = struct {
 pub const Value = union(enum) {
     number: isize,
     string: []const u8,
-    list: []const Value,
+    list: []usize,
     bool: bool,
     /// index into VM.blocks
     block: u32,
@@ -705,33 +772,25 @@ pub const Value = union(enum) {
         return switch (self) {
             .number, .bool, .block, .null => self,
             .string => .{ .string = try gpa.dupe(u8, self.string) },
-            .list => blk: {
-                const new_list = try gpa.alloc(Value, self.list.len);
-                for (new_list, self.list) |*nv, v| {
-                    nv.* = try v.dupe(gpa);
-                }
-                break :blk .{ .list = new_list };
-            },
+            .list => .{ .list = try gpa.dupe(usize, self.list) },
         };
     }
 
     pub fn free(self: Value, gpa: Allocator) void {
         switch (self) {
             .string => gpa.free(self.string),
-            .list => |list| {
-                for (list) |el| el.free(gpa);
-                gpa.free(list);
-            },
+            .list => gpa.free(self.list),
             else => {},
         }
     }
 
-    pub fn debugPrint(self: Value) void {
+    pub fn debugPrint(self: Value, pool: MemoryPool) void {
         switch (self) {
             .string => |string| std.debug.print("(Value.string)`{s}`", .{string}),
             .list => |list| {
                 std.debug.print("(Value.list)[", .{});
-                for (list) |value| {
+                for (list) |value_idx| {
+                    const value = pool.getOrPut(value_idx).*;
                     value.debugPrint();
                     std.debug.print(", ", .{});
                 }
@@ -742,7 +801,7 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn dump(self: Value, output: anytype) !void {
+    pub fn dump(self: Value, pool: MemoryPool, output: anytype) !void {
         switch (self) {
             .number => |number| try output.print("{}", .{number}),
             .string => |string| {
@@ -767,7 +826,8 @@ pub const Value = union(enum) {
             .null => try output.writeAll("null"),
             .list => |list| {
                 try output.writeAll("[");
-                for (list, 0..) |elem, idx| {
+                for (list, 0..) |elem_idx, idx| {
+                    const elem = pool.getOrPut(elem_idx).*;
                     try elem.dump(output);
                     if (idx != list.len - 1) try output.writeAll(", ");
                 }
@@ -815,7 +875,7 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn toString(self: Value, gpa: Allocator) ![]const u8 {
+    pub fn toString(self: Value, pool: *MemoryPool, gpa: Allocator) ![]const u8 {
         switch (self) {
             .string => |str| return gpa.dupe(u8, str),
             .null => return gpa.dupe(u8, &.{}),
@@ -823,24 +883,23 @@ pub const Value = union(enum) {
             .bool => |value| return if (value) gpa.dupe(u8, "true") else gpa.dupe(u8, "false"),
             .block => return gpa.dupe(u8, &.{}),
             .list => |list| {
-                const strings = try gpa.alloc([]const u8, list.len);
-                defer gpa.free(strings);
-                for (list, strings) |v, *str| {
-                    str.* = try v.toString(gpa);
+                var str_builder = std.ArrayList(u8).init(gpa);
+                defer str_builder.deinit();
+                // const strings = try gpa.alloc([]const u8, list.len);
+                // defer gpa.free(strings);
+                for (list) |v_idx| {
+                    const v_ptr = try pool.getOrPut(v_idx);
+                    try str_builder.appendSlice(try v_ptr.toString(pool, gpa));
+                    try str_builder.append('\n');
                 }
-                defer {
-                    for (strings) |str| {
-                        gpa.free(str);
-                    }
-                }
-                return std.mem.join(gpa, "\n", strings);
+                return try str_builder.toOwnedSlice();
             },
         }
     }
 
     pub fn toList(self: Value, gpa: Allocator) ![]const Value {
         switch (self) {
-            .list => |value| return gpa.dupe(Value, value),
+            .list => |value| return gpa.dupe(usize, value),
             .null => return gpa.dupe(Value, &.{}),
             .number => |value| {
                 if (value == 0) {
@@ -969,13 +1028,13 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn mutate(self: *Value, new_type: Type, gpa: Allocator) !void {
+    pub fn mutate(self: *Value, new_type: Type, pool: *MemoryPool, gpa: Allocator) !void {
         if (self.* == new_type) return;
         const old_self = self.*;
         defer old_self.free(gpa);
         switch (new_type) {
             .number => self.* = .{ .number = self.toNumber() },
-            .string => self.* = .{ .string = try self.toString(gpa) },
+            .string => self.* = .{ .string = try self.toString(pool, gpa) },
             .list => self.* = .{ .list = try self.toList(gpa) },
             .bool => self.* = .{ .bool = self.toBool() },
             .block => unreachable,
@@ -984,7 +1043,7 @@ pub const Value = union(enum) {
     }
 };
 
-pub const Instr = union(enum) {
+pub const Instr = union(enum(u16)) {
     true,
     false,
     null,
