@@ -4,6 +4,7 @@ const Ast = @import("parser.zig").Ast;
 const analyzer = @import("analyzer.zig");
 const Emitter = @import("emit.zig").Emitter;
 const VM = @import("VM.zig");
+const transpiler = @import("transpiler.zig");
 
 const debug = @import("build_options").debug;
 
@@ -39,10 +40,13 @@ pub fn main() !void {
     defer gpa.free(program);
 
     var debug_only = false;
+    var emit_zig: ?[]const u8 = null;
 
     while (argsit.next()) |flag| {
         if (std.mem.eql(u8, "--debug-only", flag)) {
             debug_only = true;
+        } else if (std.mem.eql(u8, "--emit-zig", flag)) {
+            emit_zig = argsit.next() orelse "knight-prog.zig";
         }
     }
 
@@ -63,13 +67,19 @@ pub fn main() !void {
         std.debug.print("{s}\n", .{out.items});
     }
 
+    var info = try analyzer.analyze(ast, gpa);
+    defer info.deinit(gpa);
+
+    if (emit_zig) |path| {
+        const out_file = try std.fs.cwd().createFile(path, .{});
+        defer out_file.close();
+        try transpiler.writeZigMain(gpa, ast, info, out_file.writer());
+    }
+
     const init = std.crypto.random.int(u64);
     var xorisho = std.Random.DefaultPrng.init(init);
     var vm = VM.init(gpa, xorisho.random());
     defer vm.deinit();
-
-    var info = try analyzer.analyze(ast, gpa);
-    defer info.deinit(gpa);
 
     var e = Emitter.init(ast, info);
     defer e.deinit(gpa);
