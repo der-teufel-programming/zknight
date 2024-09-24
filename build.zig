@@ -71,6 +71,11 @@ pub fn build(b: *std.Build) void {
         tests.spec.addFunctions(b, test_exe, test_step);
         tests.spec.addVariables(b, test_exe, test_step);
     }
+
+    const test_module = b.addModule("zknight-vm", .{
+        .root_source_file = b.path("src/root.zig"),
+    });
+    test_module.addOptions("build_options", test_opts);
 }
 
 const Example = struct {
