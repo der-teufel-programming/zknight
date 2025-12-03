@@ -7,8 +7,8 @@ const Token = @import("tokenizer.zig").Token;
 
 const ParserOld = struct {
     buffer: []const u8,
-    nodes: std.ArrayListUnmanaged(Ast.Node) = .{},
-    errors: std.ArrayListUnmanaged(usize) = .{},
+    nodes: std.ArrayList(Ast.Node) = .{},
+    errors: std.ArrayList(usize) = .{},
     index: usize,
     allocator: Allocator,
 
@@ -383,11 +383,15 @@ pub const Ast = struct {
         tree.* = undefined;
     }
 
-    pub fn render(tree: *Ast, buffer: *std.ArrayList(u8)) !void {
-        try tree.renderInner(0, buffer.writer());
+    pub fn render(tree: *Ast, writer: *std.Io.Writer) !void {
+        try tree.renderInner(0, writer);
     }
 
-    fn renderInner(tree: *Ast, node_idx: Node.Index, out: std.ArrayList(u8).Writer) !void {
+    fn renderInner(
+        tree: *Ast,
+        node_idx: Node.Index,
+        out: *std.Io.Writer,
+    ) !void {
         const node = tree.nodes.get(node_idx);
         switch (node.tag) {
             .string_literal => try out.print(
@@ -542,11 +546,11 @@ const Parser = struct {
     gpa: Allocator,
     token_tags: []const Token.Tag,
     token_locs: []const Token.Loc,
-    errors: std.ArrayListUnmanaged(Ast.Error),
+    errors: std.ArrayList(Ast.Error),
     nodes: Ast.NodeList,
-    node_data: std.ArrayListUnmanaged(Ast.Node.Index),
-    string_data: std.ArrayListUnmanaged(u8),
-    scratch: std.ArrayListUnmanaged(Ast.Node.Index),
+    node_data: std.ArrayList(Ast.Node.Index),
+    string_data: std.ArrayList(u8),
+    scratch: std.ArrayList(Ast.Node.Index),
     tok_i: Ast.TokenIndex,
 
     pub const ParseError = error{ParseError} || Allocator.Error;
@@ -558,13 +562,13 @@ const Parser = struct {
         try p.node_data.append(p.gpa, 0);
         try p.string_data.append(p.gpa, 0);
         try p.nodes.append(p.gpa, undefined);
-        var callstack: std.ArrayListUnmanaged(Ast.Node.Index) = .{};
+        var callstack: std.ArrayList(Ast.Node.Index) = .empty;
         defer callstack.deinit(p.gpa);
         try p.parseExpr(0, &callstack);
         if (callstack.items.len > 0) return error.ParseError;
     }
 
-    fn parseExpr(p: *Parser, node_idx: Ast.Node.Index, callstack: *std.ArrayListUnmanaged(Ast.Node.Index)) ParseError!void {
+    fn parseExpr(p: *Parser, node_idx: Ast.Node.Index, callstack: *std.ArrayList(Ast.Node.Index)) ParseError!void {
         try callstack.append(p.gpa, node_idx);
         defer _ = callstack.pop();
         while (true) {

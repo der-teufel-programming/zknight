@@ -15,9 +15,11 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "zknight",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     var opts = b.addOptions();
@@ -40,9 +42,11 @@ pub fn build(b: *std.Build) void {
 
     const test_exe = b.addExecutable(.{
         .name = "zknight",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     var test_opts = b.addOptions();
     test_opts.addOption(bool, "sanitize", true);
@@ -53,8 +57,10 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
 
     const source_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+        }),
     });
 
     const run_source_tests = b.addRunArtifact(source_tests);

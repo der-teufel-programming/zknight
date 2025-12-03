@@ -1,10 +1,11 @@
 .{
-    .name = "zknight",
-    .version = "0.2.0",
+    .name = .zknight,
+    .version = "0.3.0",
+    .fingerprint = 0x60bf5708865251a5,
     .dependencies = .{
         .@"knight-lang" = .{
             .url = "git+https://github.com/knight-lang/knight-lang.git#5397ed96aefcff7a13b1b5cb84dbdcf033f982b4",
-            .hash = "1220e7865f7f3692913ea3bcb81aa43424752331852dc9cc806e3a7aeb5559cb1b30",
+            .hash = "N-V-__8AAOAFBQDnhl9_NpKRPqO8uBqkNCR1IzGFLcnMgG46",
         },
     },
     .paths = .{

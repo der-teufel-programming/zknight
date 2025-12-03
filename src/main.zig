@@ -13,13 +13,14 @@ pub fn main() !void {
 
     const gpa = gpa_impl.allocator();
 
-    var argsit = try std.process.ArgIterator.initWithAllocator(gpa);
+    var argsit = try std.process.argsWithAllocator(gpa);
     defer argsit.deinit();
     _ = argsit.skip();
-    var files = std.ArrayList([]const u8).init(gpa);
-    defer files.deinit();
-    var programs = std.ArrayList([]const u8).init(gpa);
-    defer programs.deinit();
+    var files: std.ArrayList([]const u8) = .empty;
+    defer files.deinit(gpa);
+    var programs: std.ArrayList([]const u8) = .empty;
+    defer programs.deinit(gpa);
+
     const arg = argsit.next() orelse return;
 
     const program = if (std.mem.eql(u8, "--file", arg) or std.mem.eql(u8, "-f", arg)) blk: {
@@ -30,7 +31,7 @@ pub fn main() !void {
             gpa,
             std.math.maxInt(usize),
             null,
-            @alignOf(u8),
+            .of(u8),
             0,
         );
     } else if (std.mem.eql(u8, "-e", arg)) blk: {
@@ -53,10 +54,10 @@ fn execute(source: [:0]const u8, gpa: std.mem.Allocator) !u8 {
     }
 
     if (debug) {
-        var out = std.ArrayList(u8).init(gpa);
+        var out: std.Io.Writer.Allocating = .init(gpa);
         defer out.deinit();
-        try ast.render(&out);
-        std.debug.print("{s}\n", .{out.items});
+        try ast.render(&out.writer);
+        std.debug.print("{s}\n", .{out.written()});
     }
 
     const init = std.crypto.random.int(u64);
@@ -72,14 +73,16 @@ fn execute(source: [:0]const u8, gpa: std.mem.Allocator) !u8 {
 
     try e.emit(gpa, &vm);
 
-    var stdout = std.io.getStdOut();
-    const raw_output = stdout.writer();
-    var output = std.io.bufferedWriter(raw_output);
-    const stdin = std.io.getStdIn();
-    const input = stdin.reader();
-    const exit_code = (try vm.execute(&output, input)) orelse 0;
+    var stdout_buffer: [2048]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    var stdin_buffer: [1024]u8 = undefined;
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+    const stdin = &stdin_reader.interface;
 
-    try output.flush();
+    const exit_code = (try vm.execute(stdout, stdin)) orelse 0;
+
+    try stdout.flush();
 
     return exit_code;
 }

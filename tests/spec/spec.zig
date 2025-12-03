@@ -137,10 +137,10 @@ const KnightValue = union(enum) {
         return switch (v) {
             .number => |number| b.fmt("{}", .{number}),
             .string => |string| blk: {
-                var sb = std.ArrayList(u8).init(b.allocator);
+                var sb: std.Io.Writer.Allocating = .init(b.allocator);
                 defer sb.deinit();
-                sb.appendSlice("\"") catch @panic("OOM");
-                var writer = sb.writer();
+                const writer = &sb.writer;
+                writer.writeAll("\"") catch @panic("OOM");
                 for (string) |char| {
                     switch (char) {
                         '\t' => writer.writeAll("\\t") catch @panic("OOM"),
@@ -151,21 +151,22 @@ const KnightValue = union(enum) {
                         else => writer.writeByte(char) catch @panic("OOM"),
                     }
                 }
-                sb.appendSlice("\"") catch @panic("OOM");
+                writer.writeAll("\"") catch @panic("OOM");
                 break :blk sb.toOwnedSlice() catch @panic("OOM");
             },
             .bool => |value| if (value) "true" else "false",
             .block => unreachable,
             .null => "null",
             .list => |list| blk: {
-                var sb = std.ArrayList(u8).init(b.allocator);
+                var sb: std.Io.Writer.Allocating = .init(b.allocator);
                 defer sb.deinit();
-                sb.append('[') catch @panic("OOM");
+                const writer = &sb.writer;
+                writer.writeByte('[') catch @panic("OOM");
                 for (list, 0..) |elem, idx| {
-                    sb.appendSlice(elem.fmt(b)) catch @panic("OOM");
-                    if (idx != list.len - 1) sb.appendSlice(", ") catch @panic("OOM");
+                    writer.writeAll(elem.fmt(b)) catch @panic("OOM");
+                    if (idx != list.len - 1) writer.writeAll(", ") catch @panic("OOM");
                 }
-                sb.append(']') catch @panic("OOM");
+                writer.writeByte(']') catch @panic("OOM");
                 break :blk sb.toOwnedSlice() catch @panic("OOM");
             },
         };

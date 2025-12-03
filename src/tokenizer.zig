@@ -346,7 +346,7 @@ fn testTokenize(
     for (expected_token_tags) |expected_token_tag| {
         const token = tokenizer.next();
         errdefer std.debug.print(
-            "\n{}: {?d}\n",
+            "\n{}: {?any}\n",
             .{ token, token.loc.slice(source) },
         );
         try std.testing.expectEqual(expected_token_tag, token.tag);
@@ -356,7 +356,7 @@ fn testTokenize(
     // recovered by opinionated means outside the scope of this implementation.
     const last_token = tokenizer.next();
     errdefer std.debug.print(
-        "\n{}: {?d}\n",
+        "\n{}: {?any}\n",
         .{ last_token, last_token.loc.slice(source) },
     );
     try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
